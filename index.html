@@ -1261,17 +1261,17 @@
         container.querySelector('#candyJarTitle').textContent = `🍬 감정 사탕 병 (${monthTitle})`;
         container.querySelector('#monthlyRecordsTitle').textContent = `${monthTitle}의 전체 기록`;
 
-        // [FIX] 통계 계산 시, 전체 기록(studentAllData.length)이 아닌 선택된 달의 기록(studentMonthData.length)을 기준으로 합니다.
+        // 1. [수정] 통계 계산 시, 선택된 달의 기록(studentMonthData)을 기준으로 카운트합니다.
         const totalMonthRecords = studentMonthData.length; 
         const totalAllRecords = studentAllData.length;
         const categoryCounts = { positive: 0, negative: 0, neutral: 0 };
         studentMonthData.forEach(entry => categoryCounts[getEmotionType(entry.emotion, entry)]++);
 
-        container.querySelector('#myTotalRecords').textContent = totalAllRecords; // 전체 기록 수는 전체 데이터 기준
+        // 2. [수정] 총 기록 수는 선택된 달의 기록 수만 표시하도록 변경합니다.
+        container.querySelector('#myTotalRecords').textContent = totalMonthRecords; 
         container.querySelector('#myPositiveCount').textContent = categoryCounts.positive;
         container.querySelector('#myNeutralCount').textContent = categoryCounts.neutral;
         container.querySelector('#myNegativeCount').textContent = categoryCounts.negative;
-        // 선택된 달의 통계는 선택된 달의 데이터(studentMonthData) 기준으로만 반영합니다.
         
         renderChart(container.querySelector('#myEmotionChart'), 'doughnut', { labels: ['긍정', '부정', '중립'], datasets: [{ data: Object.values(categoryCounts), backgroundColor: ['#4CAF50', '#F44336', '#FFC107'] }] }, { responsive: true, maintainAspectRatio: false });
 
@@ -1295,12 +1295,15 @@
             }]
         }, { responsive: true, maintainAspectRatio: false, scales: { x: { title: { display: true, text: `${month}월` } }, y: { ticks: { callback: (v) => { if (v === 1) return '긍정'; if (v === -1) return '부정'; if (v === 0) return '중립'; return null; } }, min: -1.5, max: 1.5 } } });
 
-        // [복원] 자주 느끼는 감정 TOP 5
+        // [수정] 자주 느끼는 감정 TOP 5 - 선택된 달의 데이터(studentMonthData) 기준으로 집계
         const topEmotionsContainer = container.querySelector('#myTopEmotions');
         topEmotionsContainer.innerHTML = '';
-        // [복원] 'studentAllData'를 사용하여 전체 기간 Top 5 집계
-        const emotionCounts = studentAllData.reduce((acc, curr) => { acc[curr.emotion] = (acc[curr.emotion] || 0) + 1; return acc; }, {});
-        const sortedEmotions = Object.entries(emotionCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        
+        const emotionCountsAll = studentMonthData.reduce((acc, curr) => { 
+            acc[curr.emotion] = (acc[curr.emotion] || 0) + 1; 
+            return acc; 
+        }, {});
+        const sortedEmotions = Object.entries(emotionCountsAll).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
         if (sortedEmotions.length > 0) {
             sortedEmotions.forEach(([emotion, count], index) => {
@@ -1311,7 +1314,7 @@
             topEmotionsContainer.innerHTML = '<p class="text-gray-500">기록이 없습니다.</p>';
         }
 
-        // [신규] 감정 사탕 병 (전체 기록)
+        // [신규] 감정 사탕 병 (선택된 달 기록만)
         const candyContainer = container.querySelector('#candyContainer');
         candyContainer.innerHTML = ''; // Clear previous candies
         
