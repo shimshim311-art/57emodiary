@@ -933,12 +933,11 @@
 
     // --- 교사 페이지 ---
     document.getElementById('teacherLoginForm').addEventListener('submit', (e) => { 
-        e.preventDefault(); 
+        e.preventDefault(); // [FIX] 폼 제출 시 새로고침 방지
         const pw = document.getElementById('teacherPassword'); 
         if (pw.value === TEACHER_PASSWORD) { 
             document.getElementById('loginError').classList.add('hidden'); 
             pw.value = ''; 
-            // [안정화] 딜레이 없이 바로 showPage 호출 (정상 로직)
             showPage('teacherDashboard'); 
         } else { 
             document.getElementById('loginError').classList.remove('hidden'); 
@@ -1272,7 +1271,7 @@
         const daysInMonth = new Date(year, month, 0).getDate();
         const dailyTrends = Array(daysInMonth).fill(null).map((_, i) => {
             const dayStr = `${monthString}-${String(i + 1).padStart(2, '0')}`;
-            const dayData = studentMonthData.find(d => d.date === dayStr);
+            const dayData = studentMonthData.filter(d => d.date === dayStr);
             if (!dayData) return null;
             const category = getEmotionType(dayData.emotion, dayData);
             if (category === 'positive') return 1;
@@ -1430,7 +1429,8 @@
         // 4. AI 조언 섹션 초기화 (학생 뷰에서만 사용)
         const aiAdviceEl = document.getElementById('aiAdvice');
         const generateAdviceBtn = document.getElementById('generateAdviceBtn');
-        const adviceContainer = document.querySelector('#studentReportPage .p-6.mb-6:last-child');
+        // [FIX] 학생 리포트 페이지 내의 마지막 p-6.mb-6 엘리먼트가 AI 조언 섹션 컨테이너임
+        const adviceContainer = document.querySelector('#studentReportPage > .max-w-4xl > .bg-white.rounded-2xl.shadow-lg.p-6.mb-6:last-child');
         
         // [안정화] 컨테이너가 존재하는지 확인 후 로직 실행
         if (adviceContainer) {
@@ -1513,8 +1513,11 @@ ${recentRecords}
         // [FIX] 초기 페이지를 확실하게 표시
         showPage('mainPage');
         
-        // 3. [복원] 학생 로그인 폼 제출 이벤트 리스너
-        document.getElementById('studentLoginForm').addEventListener('submit', handleStudentLogin);
+        // 3. [FIX] 학생 로그인 폼 제출 이벤트 리스너를 DOMContentLoaded 내부로 이동
+        const studentLoginForm = document.getElementById('studentLoginForm');
+        if (studentLoginForm) {
+            studentLoginForm.addEventListener('submit', handleStudentLogin);
+        }
 
         // [추가] 초기 대시보드 날짜 설정
         const dashboardDate = document.getElementById('dashboardDate');
