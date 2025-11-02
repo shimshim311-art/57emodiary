@@ -947,7 +947,8 @@
         } else { 
             document.getElementById('loginError').classList.remove('hidden'); 
         } 
-        return false; // 인라인 onclick에서 호출될 때를 대비
+        // [FIX] 인라인 onclick 사용 시 폼 제출을 완전히 막기 위해 false를 반환합니다.
+        return false; 
     }
     function logoutTeacher() { showPage('mainPage'); }
     
@@ -1525,12 +1526,7 @@ ${recentRecords}
             studentLoginForm.addEventListener('submit', handleStudentLogin);
         }
         
-        // 교사 로그인 폼
-        const teacherLoginForm = document.getElementById('teacherLoginForm');
-        if (teacherLoginForm) {
-            // **[FIX] 인라인 onclick으로 대체하여 addEventListener는 제거합니다.**
-            // teacherLoginForm.addEventListener('submit', handleTeacherLogin); 
-        }
+        // 교사 로그인 폼은 이제 인라인 onclick으로 대체되어 addEventListener가 필요 없습니다.
 
         // [추가] 초기 대시보드 날짜 설정
         const dashboardDate = document.getElementById('dashboardDate');
