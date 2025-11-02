@@ -925,7 +925,18 @@
     }
 
     // --- 교사 페이지 ---
-    document.getElementById('teacherLoginForm').addEventListener('submit', (e) => { e.preventDefault(); const pw = document.getElementById('teacherPassword'); if (pw.value === TEACHER_PASSWORD) { document.getElementById('loginError').classList.add('hidden'); pw.value = ''; showPage('teacherDashboard'); } else { document.getElementById('loginError').classList.remove('hidden'); } });
+    document.getElementById('teacherLoginForm').addEventListener('submit', (e) => { 
+        e.preventDefault(); 
+        const pw = document.getElementById('teacherPassword'); 
+        if (pw.value === TEACHER_PASSWORD) { 
+            document.getElementById('loginError').classList.add('hidden'); 
+            pw.value = ''; 
+            // [안정화] 딜레이 없이 바로 showPage 호출 (정상 로직)
+            showPage('teacherDashboard'); 
+        } else { 
+            document.getElementById('loginError').classList.remove('hidden'); 
+        } 
+    });
     function logoutTeacher() { showPage('mainPage'); }
     
     // ⭐ [수정] 로컬 데이터 캐시 삭제 함수
@@ -1412,14 +1423,22 @@
         // 4. AI 조언 섹션 초기화 (학생 뷰에서만 사용)
         const aiAdviceEl = document.getElementById('aiAdvice');
         const generateAdviceBtn = document.getElementById('generateAdviceBtn');
-        if (isTeacherView) {
-            // 교사 뷰에서는 AI 조언 섹션 숨기기
-            document.querySelector('#studentReportPage .p-6.mb-6:last-child').classList.add('hidden');
-        } else {
-            document.querySelector('#studentReportPage .p-6.mb-6:last-child').classList.remove('hidden');
-            aiAdviceEl.innerHTML = '<p class="text-sm text-gray-500">버튼을 눌러 선생님의 격려 메시지를 생성해 보세요.</p>';
-            generateAdviceBtn.disabled = false;
-            generateAdviceBtn.textContent = '조언 생성하기';
+        const adviceContainer = document.querySelector('#studentReportPage .p-6.mb-6:last-child');
+        
+        // [안정화] 컨테이너가 존재하는지 확인 후 로직 실행
+        if (adviceContainer) {
+            if (isTeacherView) {
+                // 교사 뷰에서는 AI 조언 섹션 숨기기
+                adviceContainer.classList.add('hidden');
+            } else {
+                // 학생 뷰에서는 AI 조언 섹션 표시
+                adviceContainer.classList.remove('hidden');
+                if (aiAdviceEl) aiAdviceEl.innerHTML = '<p class="text-sm text-gray-500">버튼을 눌러 선생님의 격려 메시지를 생성해 보세요.</p>';
+                if (generateAdviceBtn) {
+                     generateAdviceBtn.disabled = false;
+                     generateAdviceBtn.textContent = '조언 생성하기';
+                }
+            }
         }
     }
 
