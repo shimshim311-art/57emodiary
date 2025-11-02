@@ -801,7 +801,15 @@
             const el = document.getElementById(p);
             if(el) el.classList.add('hidden');
         });
-        document.getElementById(pageId).classList.remove('hidden');
+        
+        const targetPage = document.getElementById(pageId);
+        if (targetPage) {
+            targetPage.classList.remove('hidden');
+        } else {
+             console.error("Target page element not found for:", pageId);
+             return;
+        }
+
         window.scrollTo(0, 0);
         
         if (pageId === 'friendsPage') {
@@ -1083,7 +1091,16 @@
                 })
             });
             
-            const result = await response.json();
+            const txt = await response.text();
+            let result;
+            try { 
+                if (!txt) throw new Error("EMPTY_RESPONSE");
+                result = JSON.parse(txt); 
+            } catch (err) {
+                 console.error("GAS 응답 JSON 파싱 실패:", err, txt);
+                 result = { status: "error", message: "응답 파싱 오류" };
+            }
+
 
             if (response.ok && result.status === "success") {
                 showToast("쪽지가 선생님께 성공적으로 전달되었습니다! (비밀 보장)");
@@ -1662,4 +1679,161 @@
                 candy.style.bottom = `${finalBottom}px`; 
                 
                 /* [수정] 애니메이션 지연 시간을 개별적으로 설정 */
-                candy.style.setProperty('--final-rotate', `${Math.random() *
+                candy.style.animationDelay = `${index * 0.15}s`; 
+                candy.style.setProperty('--final-rotate', `${Math.random() * 360}deg`); // 최종 회전 각도
+
+                // [수정] 툴팁 추가
+                candy.onmouseenter = (e) => {
+                    tooltip.innerHTML = `<strong>${entry.date}</strong><br><span>${entry.emotion} ${entry.emoji}</span><br><span class="text-sm">${entry.reason}</span>`;
+                    tooltip.classList.add('show');
+                    // 툴팁 위치 조정 (사탕 위에 표시)
+                    const rect = e.target.getBoundingClientRect();
+                    tooltip.style.left = `${rect.left + rect.width / 2 - tooltip.offsetWidth / 2}px`;
+                    tooltip.style.top = `${rect.top - tooltip.offsetHeight - 5}px`;
+                };
+                candy.onmouseleave = () => tooltip.classList.remove('show');
+
+                candyContainer.appendChild(candy);
+            });
+        } else {
+            candyContainer.innerHTML = '<p class="text-gray-500">선택한 달에 기록된 감정 사탕이 없습니다.</p>';
+        }
+
+
+        // [복원] 선택한 달의 전체 기록
+        const recordsContainer = container.querySelector('#myRecentRecords');
+        recordsContainer.innerHTML = '';
+        if (studentMonthData.length > 0) {
+            // [수정] 최신순으로 정렬하여 표시
+            studentMonthData.slice().sort((a, b) => b.date.localeCompare(a.date)).forEach(entry => {
+                recordsContainer.innerHTML += `
+                    <div class="bg-gray-50 p-4 rounded-xl shadow-sm border-l-4 ${entry.category === 'positive' ? 'border-green-500' : entry.category === 'negative' ? 'border-red-500' : 'border-gray-500'}">
+                        <p class="font-semibold text-gray-800">${entry.date} &middot; ${entry.emotion} ${entry.emoji}</p>
+                        <p class="text-sm text-gray-600 mt-1 whitespace-pre-wrap">${entry.reason}</p>
+                    </div>
+                `;
+            });
+        } else {
+            recordsContainer.innerHTML = '<p class="text-gray-500">선택한 달의 기록이 없습니다.</p>';
+        }
+    }
+
+
+    function renderStudentReport(studentNumber, isTeacherView = true) {
+        currentStudentForReport = studentNumber;
+        showPage('studentReportPage');
+
+        // 1. 헤더 및 월 선택기 설정
+        document.getElementById('studentReportNumber').textContent = `${studentNumber}번 학생의 리포트`;
+        
+        const monthPicker = document.getElementById('studentReportMonth');
+        if (!monthPicker.dataset.listenerAttached) {
+             monthPicker.addEventListener('change', () => renderStudentReport(studentNumber, isTeacherView));
+             monthPicker.dataset.listenerAttached = 'true';
+        }
+        
+        // 현재 월이 설정되어 있지 않으면 오늘 날짜로 설정
+        const today = new Date();
+        const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+        monthPicker.value = monthPicker.value || defaultMonth;
+        
+        const selectedMonth = monthPicker.value;
+
+        // 2. 버튼 표시/숨기기
+        document.getElementById('dashboardButton').classList.toggle('hidden', !isTeacherView);
+        document.getElementById('mainPageButton').classList.toggle('hidden', isTeacherView);
+        
+        // 3. 데이터 렌더링
+        // [수정] renderStudentReportContent 함수 호출
+        renderStudentReportContent('#studentReportPage', studentNumber, selectedMonth);
+
+        // 4. AI 조언 섹션 초기화 (학생 뷰에서만 사용)
+        const aiAdviceEl = document.getElementById('aiAdvice');
+        const generateAdviceBtn = document.getElementById('generateAdviceBtn');
+        if (isTeacherView) {
+            // 교사 뷰에서는 AI 조언 섹션 숨기기
+            document.querySelector('#studentReportPage .p-6.mb-6:last-child').classList.add('hidden');
+        } else {
+            document.querySelector('#studentReportPage .p-6.mb-6:last-child').classList.remove('hidden');
+            aiAdviceEl.innerHTML = '<p class="text-sm text-gray-500">버튼을 눌러 선생님의 격려 메시지를 생성해 보세요.</p>';
+            generateAdviceBtn.disabled = false;
+            generateAdviceBtn.textContent = '조언 생성하기';
+        }
+    }
+
+
+    // [복원] AI 조언 생성 함수
+    async function fetchAIAdvice() {
+        const studentNumber = currentStudentForReport;
+        if (!studentNumber) return showToast('학생 번호가 선택되지 않았습니다.');
+        if (!API_KEY) return showToast('선생님! Gemini API 키를 설정해야 사용할 수 있어요.');
+
+        const btn = document.getElementById('generateAdviceBtn');
+        const aiAdviceEl = document.getElementById('aiAdvice');
+        
+        btn.disabled = true;
+        btn.textContent = '조언 분석 중...';
+        aiAdviceEl.innerHTML = '<div class="loader mx-auto"></div><p class="text-center text-purple-700 mt-2">학생의 감정 기록을 분석하는 중입니다...</p>';
+
+        const studentData = getAllData().filter(d => d.studentNumber === studentNumber);
+        
+        if (studentData.length === 0) {
+             aiAdviceEl.innerHTML = '<p class="text-red-600 font-semibold">아직 이 학생의 기록이 없어 조언을 생성할 수 없습니다.</p>';
+             btn.disabled = false;
+             btn.textContent = '조언 생성하기';
+             return;
+        }
+        
+        // 최근 기록 5개와 전체 통계 데이터를 요약
+        const recentRecords = studentData.slice(-5).map(e => `[${e.date} ${e.emotion}] ${e.reason}`).join('\n');
+        const totalCounts = studentData.reduce((acc, curr) => { acc[getEmotionType(curr.emotion, curr)]++; return acc; }, { positive: 0, negative: 0, neutral: 0 });
+        
+        const prompt = `당신은 초등학생의 담임 선생님입니다. 아래는 ${studentNumber}번 학생의 최근 감정일기 기록과 전체적인 감정 통계입니다. 이 정보를 바탕으로 학생에게 힘이 되고 격려가 되는 긍정적이고 따뜻한 **짧은 조언** 한 마디를 한국어로 작성해 주세요. 조언은 반드시 3문장 이내로 작성해야 합니다.
+
+<학생 감정 통계>
+- 전체 기록: ${studentData.length}건
+- 긍정: ${totalCounts.positive}회, 부정: ${totalCounts.negative}회, 중립: ${totalCounts.neutral}회
+
+<최근 5일간의 기록 (최신순)>
+${recentRecords}
+
+선생님의 조언:`;
+
+        const advice = await callGeminiAPI(prompt);
+
+        if (advice) {
+            aiAdviceEl.innerHTML = `<p class="whitespace-pre-wrap">${advice}</p>`;
+        } else {
+            aiAdviceEl.innerHTML = '<p class="text-red-600 font-semibold">AI 조언 생성에 실패했습니다. 다시 시도해 주세요.</p>';
+        }
+
+        btn.disabled = false;
+        btn.textContent = '조언 다시 생성하기';
+    }
+
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        document.getElementById('currentDate').textContent = getTodayDateString();
+        // 폼 드롭다운과 이모티콘 채우기 (페이지 로드 시 미리 실행)
+        populateForms(); 
+
+        // 1. 데이터 로드 시도
+        // ⭐ [수정] 페이지 로드 시 GAS 데이터 동기화 시도 (성공 여부 반환)
+        const loadSuccess = await syncDataFromGAS(); 
+
+        // 2. 초기 페이지 표시
+        showPage('mainPage');
+        
+        // 3. [복원] 학생 로그인 폼 제출 이벤트 리스너
+        document.getElementById('studentLoginForm').addEventListener('submit', handleStudentLogin);
+
+        // [추가] 초기 대시보드 날짜 설정
+        const dashboardDate = document.getElementById('dashboardDate');
+        if (dashboardDate) dashboardDate.value = getTodayDateString();
+        const today = new Date();
+        const dashboardMonth = document.getElementById('dashboardMonth');
+        if (dashboardMonth) dashboardMonth.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    });
+    </script>
+</body>
+</html>
