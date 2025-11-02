@@ -1261,22 +1261,26 @@
         container.querySelector('#candyJarTitle').textContent = `🍬 감정 사탕 병 (${monthTitle})`;
         container.querySelector('#monthlyRecordsTitle').textContent = `${monthTitle}의 전체 기록`;
 
-        const total = studentAllData.length;
+        // [FIX] 통계 계산 시, 전체 기록(studentAllData.length)이 아닌 선택된 달의 기록(studentMonthData.length)을 기준으로 합니다.
+        const totalMonthRecords = studentMonthData.length; 
+        const totalAllRecords = studentAllData.length;
         const categoryCounts = { positive: 0, negative: 0, neutral: 0 };
         studentMonthData.forEach(entry => categoryCounts[getEmotionType(entry.emotion, entry)]++);
 
-        container.querySelector('#myTotalRecords').textContent = total;
+        container.querySelector('#myTotalRecords').textContent = totalAllRecords; // 전체 기록 수는 전체 데이터 기준
         container.querySelector('#myPositiveCount').textContent = categoryCounts.positive;
         container.querySelector('#myNeutralCount').textContent = categoryCounts.neutral;
         container.querySelector('#myNegativeCount').textContent = categoryCounts.negative;
-
+        // 선택된 달의 통계는 선택된 달의 데이터(studentMonthData) 기준으로만 반영합니다.
+        
         renderChart(container.querySelector('#myEmotionChart'), 'doughnut', { labels: ['긍정', '부정', '중립'], datasets: [{ data: Object.values(categoryCounts), backgroundColor: ['#4CAF50', '#F44336', '#FFC107'] }] }, { responsive: true, maintainAspectRatio: false });
 
         const [year, month] = monthString.split('-').map(Number);
         const daysInMonth = new Date(year, month, 0).getDate();
         const dailyTrends = Array(daysInMonth).fill(null).map((_, i) => {
             const dayStr = `${monthString}-${String(i + 1).padStart(2, '0')}`;
-            const dayData = studentMonthData.filter(d => d.date === dayStr);
+            // 선택된 달 데이터 내에서 해당 일자의 기록을 찾습니다.
+            const dayData = studentMonthData.find(d => d.date === dayStr); 
             if (!dayData) return null;
             const category = getEmotionType(dayData.emotion, dayData);
             if (category === 'positive') return 1;
