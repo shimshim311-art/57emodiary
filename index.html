@@ -1523,7 +1523,8 @@ ${recentRecords}
         // 교사 로그인 폼
         const teacherLoginForm = document.getElementById('teacherLoginForm');
         if (teacherLoginForm) {
-            teacherLoginForm.addEventListener('submit', handleTeacherLogin); // 분리된 함수 연결
+            // [FIX] 교사 로그인 핸들러 연결
+            teacherLoginForm.addEventListener('submit', handleTeacherLogin); 
         }
 
         // [추가] 초기 대시보드 날짜 설정
