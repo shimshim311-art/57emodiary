@@ -455,12 +455,19 @@
     function showPage(pageId) {
         pages.forEach(p => {
             const el = document.getElementById(p);
-            if(el) el.classList.add('hidden');
+            // [안정화] 모든 페이지를 명시적으로 숨김
+            if(el) {
+                 el.classList.add('hidden');
+                 // [FIX] 숨길 때 fade-in 클래스 제거
+                 el.classList.remove('fade-in'); 
+            }
         });
         
         const targetPage = document.getElementById(pageId);
         if (targetPage) {
             targetPage.classList.remove('hidden');
+            // [FIX] 보여줄 때 fade-in 클래스 추가
+            targetPage.classList.add('fade-in'); 
         } else {
              console.error("Target page element not found for:", pageId);
              return;
@@ -1503,6 +1510,7 @@ ${recentRecords}
         const loadSuccess = await syncDataFromGAS(); 
 
         // 2. 초기 페이지 표시
+        // [FIX] 초기 페이지를 확실하게 표시
         showPage('mainPage');
         
         // 3. [복원] 학생 로그인 폼 제출 이벤트 리스너
