@@ -932,7 +932,8 @@
     }
 
     // --- 교사 페이지 ---
-    document.getElementById('teacherLoginForm').addEventListener('submit', (e) => { 
+    // [FIX] DOMContentLoaded로 이동하기 위해 이 블록에서 이벤트 리스너를 제거하고 함수로 분리했습니다.
+    function handleTeacherLogin(e) { 
         e.preventDefault(); // [FIX] 폼 제출 시 새로고침 방지
         const pw = document.getElementById('teacherPassword'); 
         if (pw.value === TEACHER_PASSWORD) { 
@@ -942,7 +943,7 @@
         } else { 
             document.getElementById('loginError').classList.remove('hidden'); 
         } 
-    });
+    }
     function logoutTeacher() { showPage('mainPage'); }
     
     // ⭐ [수정] 로컬 데이터 캐시 삭제 함수
@@ -1081,13 +1082,11 @@
         const dailyTrends = Array(daysInMonth).fill(null).map((_, i) => {
             const dayStr = `${monthString}-${String(i + 1).padStart(2, '0')}`;
             const dayData = monthData.filter(d => d.date === dayStr);
-            const total = dayData.length;
-            if (total === 0) return { positive: 0, negative: 0, neutral: 0 };
-            return {
-                positive: (dayData.filter(d => getEmotionType(d.emotion, d) === 'positive').length / total) * 100,
-                negative: (dayData.filter(d => getEmotionType(d.emotion, d) === 'negative').length / total) * 100,
-                neutral: (dayData.filter(d => getEmotionType(d.emotion, d) === 'neutral').length / total) * 100
-            };
+            if (!dayData) return null;
+            const category = getEmotionType(dayData.emotion, dayData);
+            if (category === 'positive') return 1;
+            if (category === 'negative') return -1;
+            return 0;
         });
 
         renderChart('monthlyTrendChart', 'bar', {
@@ -1513,10 +1512,18 @@ ${recentRecords}
         // [FIX] 초기 페이지를 확실하게 표시
         showPage('mainPage');
         
-        // 3. [FIX] 학생 로그인 폼 제출 이벤트 리스너를 DOMContentLoaded 내부로 이동
+        // 3. [FIX] 폼 제출 이벤트 리스너를 DOMContentLoaded 내부로 이동 및 연결
+        
+        // 학생 로그인 폼
         const studentLoginForm = document.getElementById('studentLoginForm');
         if (studentLoginForm) {
             studentLoginForm.addEventListener('submit', handleStudentLogin);
+        }
+        
+        // 교사 로그인 폼
+        const teacherLoginForm = document.getElementById('teacherLoginForm');
+        if (teacherLoginForm) {
+            teacherLoginForm.addEventListener('submit', handleTeacherLogin); // 분리된 함수 연결
         }
 
         // [추가] 초기 대시보드 날짜 설정
@@ -1613,7 +1620,7 @@ ${recentRecords}
                 </div>
             </div>
         </div>
-        
+
         <div id="noteToTeacherPage" class="hidden container mx-auto px-4 py-8">
             <div class="max-w-2xl mx-auto">
                 <div class="bg-white rounded-3xl shadow-xl p-8 fade-in">
