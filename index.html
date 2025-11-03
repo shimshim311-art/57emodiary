@@ -556,21 +556,32 @@
         positions.push({ left, top, right:left+size, bottom:top+size });
         el.style.left = `${left}px`; el.style.top = `${top}px`; el.style.animationDelay = `${Math.random()*5}s`;
 
-        const showDetail = (e)=>{
-          const rect = e.target.getBoundingClientRect();
-          const tip = getTooltip();
-          if (!tip) return;
-          tip.innerHTML = '...';
-          tip.classList.add('show');
-          let w = tooltip.offsetWidth, h = tooltip.offsetHeight;
-          let L = rect.left + rect.width/2 - w/2;
-          let T = rect.top - h - 10;
-          if (L < 10) L = 10;
-          if (L + w > window.innerWidth - 10) L = window.innerWidth - w - 10;
-          if (T < 10) T = 10;
-          tooltip.style.left = `${L}px`; tooltip.style.top = `${T}px`;
-        };
-        const hideDetail = ()=> tooltip.classList.remove('show');
+       const showDetail = (e)=>{
+       const rect = e.target.getBoundingClientRect();
+       const tip = getTooltip();
+       if (!tip) return;
+
+       // 내용 구성 (번호/감정/이유 채우기)
+       tip.innerHTML = `<strong>${entry.studentNumber}번 (${entry.emotion})</strong><br><span class="text-sm">${entry.reason}</span>`;
+       tip.classList.add('show');
+
+       // 말풍선 위치 계산
+       const w = tip.offsetWidth, h = tip.offsetHeight;
+       let L = rect.left + rect.width/2 - w/2;
+       let T = rect.top - h - 10;
+       if (L < 10) L = 10;
+       if (L + w > window.innerWidth - 10) L = window.innerWidth - w - 10;
+       if (T < 10) T = 10;
+
+       tip.style.left = `${L}px`;
+       tip.style.top  = `${T}px`;
+     };
+
+       const hideDetail = ()=> {
+       const tip = getTooltip();
+       tip?.classList.remove('show');
+     };
+
 
         el.onmouseenter = showDetail; el.onmouseleave = hideDetail;
         let t = null;
@@ -582,14 +593,6 @@
         el.addEventListener('touchcancel', ()=>{ clearTimeout(t); hideDetail(); });
 
         container.appendChild(el);
-
-          let tooltip = null;
-          let toastEl = null;
-
-          document.addEventListener("DOMContentLoaded", () => {
-          tooltip = document.getElementById("tooltip");
-          toastEl = document.getElementById("toast");
-      });
     }
 
     /* =========================
