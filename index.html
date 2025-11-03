@@ -844,136 +844,182 @@
     /* =========================
        학생 리포트 (제목에 월 표시 고정)
        ========================= */
-    async function renderStudentReportContent(containerSelector, studentNumber, monthString){
-      const container = document.querySelector(containerSelector);
-      if (!container){ console.error('Container not found:', containerSelector); return; }
+    async function renderStudentReportContent(containerSelector, studentNumber, monthString) {
+  const container = document.querySelector(containerSelector);
+  if (!container) {
+    console.error("Container not found:", containerSelector);
+    return;
+  }
 
-      const studentAll = getAllData().filter(d=> d.studentNumber===studentNumber);
-      const studentMonth = studentAll.filter(d=> d.date.startsWith(monthString));
+  // ✅ 월 기본값 자동 설정
+  const today = new Date();
+  if (!monthString) {
+    monthString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  }
 
-      const [year, month] = monthString.split('-').map(Number);
-      const monthTitle = `${year}년 ${month}월`;
-      const monthLabel = `${month}월`;
+  const studentAll = getAllData().filter(d => d.studentNumber === studentNumber);
+  const studentMonth = studentAll.filter(d => d.date.startsWith(monthString));
 
-      // 상단 제목들
-      container.querySelector('#candyJarTitle').textContent = `🍬  (${monthTitle})의 감정 보관함`;
-      container.querySelector('#monthlyRecordsTitle').textContent = `${monthTitle}의 전체 기록`;
+  const [year, month] = monthString.split('-').map(Number);
+  const monthTitle = `${year}년 ${month}월`;
+  const monthLabel = `${month}월`;
 
-      // ✅ 요청 사항: "(선택한 달)의 감정분포/감정변화" → "11월의 감정분포/감정변화"
-      const emotionTitleEl = container.querySelector('#myEmotionTitle');
-      const trendTitleEl   = container.querySelector('#myTrendTitle');
-      if (emotionTitleEl) emotionTitleEl.textContent = `${monthLabel}의 감정분포`;
-      if (trendTitleEl)   trendTitleEl.textContent   = `${monthLabel}의 감정변화`;
+  // ✅ 제목 자동 업데이트 (HTML 기본 텍스트 제거 필요!)
+  const candyJarTitle = container.querySelector('#candyJarTitle');
+  const monthlyRecordsTitle = container.querySelector('#monthlyRecordsTitle');
+  const emotionTitleEl = container.querySelector('#myEmotionTitle');
+  const trendTitleEl = container.querySelector('#myTrendTitle');
 
-      // 통계
-      const totalMonthRecords = studentMonth.length;
-      const counts = { positive:0, negative:0, neutral:0 };
-      studentMonth.forEach(e=> counts[getEmotionType(e.emotion,e)]++);
+  if (candyJarTitle) candyJarTitle.textContent = `🍬 감정 사탕 병 (${monthTitle})`;
+  if (monthlyRecordsTitle) monthlyRecordsTitle.textContent = `${monthTitle}의 전체 기록`;
+  if (emotionTitleEl) emotionTitleEl.textContent = `${monthLabel}의 감정분포`;
+  if (trendTitleEl) trendTitleEl.textContent = `${monthLabel}의 감정변화`;
 
-      container.querySelector('#myTotalRecords').textContent = totalMonthRecords;
-      container.querySelector('#myPositiveCount').textContent = counts.positive;
-      container.querySelector('#myNeutralCount').textContent  = counts.neutral;
-      container.querySelector('#myNegativeCount').textContent = counts.negative;
+  // ✅ 통계 계산
+  const totalMonthRecords = studentMonth.length;
+  const counts = { positive: 0, negative: 0, neutral: 0 };
+  studentMonth.forEach(e => counts[getEmotionType(e.emotion, e)]++);
 
-      renderChart(container.querySelector('#myEmotionChart'),'doughnut',{
-        labels:['긍정','부정','중립'],
-        datasets:[{ data:Object.values(counts), backgroundColor:['#4CAF50','#F44336','#FFC107']}]
-      }, { responsive:true, maintainAspectRatio:false });
+  container.querySelector('#myTotalRecords').textContent = totalMonthRecords;
+  container.querySelector('#myPositiveCount').textContent = counts.positive;
+  container.querySelector('#myNeutralCount').textContent = counts.neutral;
+  container.querySelector('#myNegativeCount').textContent = counts.negative;
 
-      // 감정 변화(라인)
-      const daysInMonth = new Date(year, month, 0).getDate();
-      const dailyTrends = Array.from({length:daysInMonth},(_,i)=>{
-        const dayStr = `${monthString}-${String(i+1).padStart(2,'0')}`;
-        const dayData = studentMonth.find(d=> d.date===dayStr);
-        if (!dayData) return null;
-        const c = getEmotionType(dayData.emotion, dayData);
-        if (c==='positive') return 1;
-        if (c==='negative') return -1;
-        return 0;
-      });
+  // ✅ 감정 분포 차트
+  renderChart(container.querySelector('#myEmotionChart'), 'doughnut', {
+    labels: ['긍정', '부정', '중립'],
+    datasets: [{
+      data: Object.values(counts),
+      backgroundColor: ['#4CAF50', '#F44336', '#FFC107']
+    }]
+  }, { responsive: true, maintainAspectRatio: false });
 
-      renderChart(container.querySelector('#myTrendChart'),'line',{
-        labels: Array.from({length:daysInMonth},(_,i)=> i+1),
-        datasets:[{
-          label:'감정 변화', data: dailyTrends, borderColor:'#667eea', backgroundColor:'#667eea20', fill:true, tension:.1, spanGaps:true
-        }]
-      }, {
-        responsive:true, maintainAspectRatio:false,
-        scales:{
-          x:{ title:{ display:true, text:`${month}월` }},
-          y:{ min:-1.5, max:1.5, ticks:{ callback:(v)=> v===1?'긍정': v===0?'중립': v===-1?'부정': '' } }
+  // ✅ 감정 변화 (라인 그래프)
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const dailyTrends = Array.from({ length: daysInMonth }, (_, i) => {
+    const dayStr = `${monthString}-${String(i + 1).padStart(2, '0')}`;
+    const dayData = studentMonth.find(d => d.date === dayStr);
+    if (!dayData) return null;
+    const c = getEmotionType(dayData.emotion, dayData);
+    if (c === 'positive') return 1;
+    if (c === 'negative') return -1;
+    return 0;
+  });
+
+  renderChart(container.querySelector('#myTrendChart'), 'line', {
+    labels: Array.from({ length: daysInMonth }, (_, i) => i + 1),
+    datasets: [{
+      label: '감정 변화',
+      data: dailyTrends,
+      borderColor: '#667eea',
+      backgroundColor: '#667eea20',
+      fill: true,
+      tension: 0.1,
+      spanGaps: true
+    }]
+  }, {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: { title: { display: true, text: `${month}월` } },
+      y: {
+        min: -1.5,
+        max: 1.5,
+        ticks: {
+          callback: v => v === 1 ? '긍정' : v === 0 ? '중립' : v === -1 ? '부정' : ''
         }
-      });
-
-      // TOP5 (해당 월 기준)
-      const topBox = container.querySelector('#myTopEmotions'); topBox.innerHTML='';
-      const emoCounts = studentMonth.reduce((acc,c)=> (acc[c.emotion]=(acc[c.emotion]||0)+1, acc),{});
-      const sorted = Object.entries(emoCounts).sort((a,b)=> b[1]-a[1]).slice(0,5);
-      if (sorted.length){
-        sorted.forEach(([emo,count],i)=>{
-          const emoji = (studentAll.find(d=> d.emotion===emo)?.emoji) || DEFAULT_EMOJIS[getEmotionType(emo)];
-          topBox.innerHTML += `<div class="flex items-center justify-between text-gray-700 border-b pb-2"><span>${i+1}. ${emoji} ${emo}</span><span class="font-bold">${count}회</span></div>`;
-        });
-      } else {
-        topBox.innerHTML = '<p class="text-gray-500">기록이 없습니다.</p>';
-      }
-
-      // 감정 사탕 병 (해당 월)
-      const candyContainer = container.querySelector('#candyContainer');
-      candyContainer.innerHTML = '';
-      if (studentMonth.length){
-        const jarW = 400*1.09, jarH = 500*1.09;
-        const candySize = 126;
-        const offX = (candyContainer.offsetWidth - jarW)/2;
-        const offY = (candyContainer.offsetHeight - jarH)/2;
-        const stackW = candySize*0.7, maxPerRow = Math.floor((jarW*0.8)/stackW);
-        const stackH = candySize*0.3;
-
-        studentMonth.forEach((entry,idx)=>{
-          const candy = document.createElement('div');
-          candy.className = 'w-28 h-28 rounded-full flex items-center justify-center text-7xl absolute falling-candy';
-          candy.textContent = entry.emoji;
-          candy.title = `${entry.date}: ${entry.emotion}`;
-
-          const row = Math.floor(idx / maxPerRow);
-          const col = idx % maxPerRow;
-          let bottom = offY + (row*stackH) + (Math.random()*5 - 2.5);
-          let left   = offX + (jarW*0.1) + (col*stackW) + (row%2===1 ? stackW/2 : 0) + (Math.random()*10 - 5);
-          if (left + candySize > offX + jarW*0.9) left -= stackW/2;
-
-          candy.style.left = `${left}px`; candy.style.bottom = `${bottom}px`;
-          candy.style.animationDelay = `${idx * 0.15}s`;
-          candy.style.setProperty('--final-rotate', `${Math.random()*360}deg`);
-
-          candy.onmouseenter = (e)=>{
-            tooltip.innerHTML = `<strong>${entry.date}</strong><br><span>${entry.emotion} ${entry.emoji}</span><br><span class="text-sm">${entry.reason}</span>`;
-            tooltip.classList.add('show');
-            const r = e.target.getBoundingClientRect();
-            tooltip.style.left = `${r.left + r.width/2 - tooltip.offsetWidth/2}px`;
-            tooltip.style.top  = `${r.top - tooltip.offsetHeight - 5}px`;
-          };
-          candy.onmouseleave = ()=> tooltip.classList.remove('show');
-          candyContainer.appendChild(candy);
-        });
-      } else {
-        candyContainer.innerHTML = '<p class="text-gray-500">선택한 달에 기록된 감정 사탕이 없습니다.</p>';
-      }
-
-      // 해당 달 기록 목록
-      const rec = container.querySelector('#myRecentRecords');
-      rec.innerHTML = '';
-      if (studentMonth.length){
-        studentMonth.slice().sort((a,b)=> b.date.localeCompare(a.date)).forEach(e=>{
-          rec.innerHTML += `
-            <div class="bg-gray-50 p-4 rounded-xl shadow-sm border-l-4 ${e.category==='positive'?'border-green-500': e.category==='negative'?'border-red-500':'border-gray-500'}">
-              <p class="font-semibold text-gray-800">${e.date} &middot; ${e.emotion} ${e.emoji}</p>
-              <p class="text-sm text-gray-600 mt-1 whitespace-pre-wrap">${e.reason}</p>
-            </div>`;
-        });
-      } else {
-        rec.innerHTML = '<p class="text-gray-500">선택한 달의 기록이 없습니다.</p>';
       }
     }
+  });
+
+  // ✅ 자주 느낀 감정 TOP5
+  const topBox = container.querySelector('#myTopEmotions');
+  topBox.innerHTML = '';
+  const emoCounts = studentMonth.reduce((acc, c) => {
+    acc[c.emotion] = (acc[c.emotion] || 0) + 1;
+    return acc;
+  }, {});
+  const sorted = Object.entries(emoCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (sorted.length) {
+    sorted.forEach(([emo, count], i) => {
+      const emoji = (studentAll.find(d => d.emotion === emo)?.emoji) || DEFAULT_EMOJIS[getEmotionType(emo)];
+      topBox.innerHTML += `
+        <div class="flex items-center justify-between text-gray-700 border-b pb-2">
+          <span>${i + 1}. ${emoji} ${emo}</span>
+          <span class="font-bold">${count}회</span>
+        </div>`;
+    });
+  } else {
+    topBox.innerHTML = '<p class="text-gray-500">기록이 없습니다.</p>';
+  }
+
+  // ✅ 감정 사탕 병 표시
+  const candyContainer = container.querySelector('#candyContainer');
+  candyContainer.innerHTML = '';
+  if (studentMonth.length) {
+    const jarW = 400 * 1.09, jarH = 500 * 1.09;
+    const candySize = 126;
+    const offX = (candyContainer.offsetWidth - jarW) / 2;
+    const offY = (candyContainer.offsetHeight - jarH) / 2;
+    const stackW = candySize * 0.7, maxPerRow = Math.floor((jarW * 0.8) / stackW);
+    const stackH = candySize * 0.3;
+
+    studentMonth.forEach((entry, idx) => {
+      const candy = document.createElement('div');
+      candy.className = 'w-28 h-28 rounded-full flex items-center justify-center text-7xl absolute falling-candy';
+      candy.textContent = entry.emoji;
+      candy.title = `${entry.date}: ${entry.emotion}`;
+
+      const row = Math.floor(idx / maxPerRow);
+      const col = idx % maxPerRow;
+      let bottom = offY + (row * stackH) + (Math.random() * 5 - 2.5);
+      let left = offX + (jarW * 0.1) + (col * stackW) + (row % 2 === 1 ? stackW / 2 : 0) + (Math.random() * 10 - 5);
+      if (left + candySize > offX + jarW * 0.9) left -= stackW / 2;
+
+      candy.style.left = `${left}px`;
+      candy.style.bottom = `${bottom}px`;
+      candy.style.animationDelay = `${idx * 0.15}s`;
+      candy.style.setProperty('--final-rotate', `${Math.random() * 360}deg`);
+
+      candy.onmouseenter = (e) => {
+        tooltip.innerHTML = `<strong>${entry.date}</strong><br><span>${entry.emotion} ${entry.emoji}</span><br><span class="text-sm">${entry.reason}</span>`;
+        tooltip.classList.add('show');
+        const r = e.target.getBoundingClientRect();
+        tooltip.style.left = `${r.left + r.width / 2 - tooltip.offsetWidth / 2}px`;
+        tooltip.style.top = `${r.top - tooltip.offsetHeight - 5}px`;
+      };
+      candy.onmouseleave = () => tooltip.classList.remove('show');
+      candyContainer.appendChild(candy);
+    });
+  } else {
+    candyContainer.innerHTML = '<p class="text-gray-500">선택한 달에 기록된 감정 사탕이 없습니다.</p>';
+  }
+
+  // ✅ 해당 달 기록 목록
+  const rec = container.querySelector('#myRecentRecords');
+  rec.innerHTML = '';
+  if (studentMonth.length) {
+    studentMonth
+      .slice()
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .forEach(e => {
+        rec.innerHTML += `
+          <div class="bg-gray-50 p-4 rounded-xl shadow-sm border-l-4 ${
+            e.category === 'positive'
+              ? 'border-green-500'
+              : e.category === 'negative'
+              ? 'border-red-500'
+              : 'border-gray-500'
+          }">
+            <p class="font-semibold text-gray-800">${e.date} &middot; ${e.emotion} ${e.emoji}</p>
+            <p class="text-sm text-gray-600 mt-1 whitespace-pre-wrap">${e.reason}</p>
+          </div>`;
+      });
+  } else {
+    rec.innerHTML = '<p class="text-gray-500">선택한 달의 기록이 없습니다.</p>';
+  }
+}
+
 
     function renderStudentReport(studentNumber, isTeacherView=true){
       currentStudentForReport = studentNumber;
@@ -1426,11 +1472,11 @@ ${recent5}
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 mt-6">
           <div class="bg-white rounded-2xl shadow-lg p-6">
-            <h3 id="myEmotionTitle" class="text-xl font-bold text-gray-800 mb-4">선택한 달의 감정분포</h3>
+            <h3 id="myEmotionTitle" class="text-xl font-bold text-gray-800 mb-4"></h3>
             <div class="chart-container"><canvas id="myEmotionChart"></canvas></div>
           </div>
           <div class="bg-white rounded-2xl shadow-lg p-6">
-            <h3 id="myTrendTitle" class="text-xl font-bold text-gray-800 mb-4">선택한 달의 감정변화</h3>
+            <h3 id="myTrendTitle" class="text-xl font-bold text-gray-800 mb-4"></h3>
             <div class="chart-container"><canvas id="myTrendChart"></canvas></div>
           </div>
         </div>
