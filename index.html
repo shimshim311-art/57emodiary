@@ -582,6 +582,13 @@
         el.addEventListener('touchcancel', ()=>{ clearTimeout(t); hideDetail(); });
 
         container.appendChild(el);
+
+          let tooltip = null;
+          let toastEl = null;
+
+          document.addEventListener("DOMContentLoaded", () => {
+          tooltip = document.getElementById("tooltip");
+          toastEl = document.getElementById("toast");
       });
     }
 
