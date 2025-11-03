@@ -142,6 +142,17 @@
         setTimeout(()=> toastEl.classList.add('hidden'), 300);
       }, hideDelay);
     }
+    
+    // ✅ Tooltip 안전 접근 + HTML 이스케이프
+    function getTooltip(){ return document.getElementById('tooltip'); }
+    function escapeHtml(s){ return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
 
     /* =========================
        로컬 캐시
@@ -520,80 +531,97 @@
     /* =========================
        친구들 페이지
        ========================= */
-    function renderFloatingEmotions(){
-      const container = document.getElementById('floatingEmotions');
-      container.innerHTML = `
-        <div class="text-center py-10">
-          <div class="loader mx-auto"></div>
-          <p class="text-gray-600 mt-4">친구들의 감정 기록을 서버에서 불러오는 중...</p>
-        </div>`;
-      const todays = getAllData().filter(d=> d.date === getTodayDateString());
-      if (!todays.length){
-        container.innerHTML = `<div class="text-center text-gray-500 py-20">아직 일기를 쓴 친구가 없어요.</div>`;
-        return;
-      }
-      container.innerHTML = '';
-      const positions = [];
-      const size = 48;
-      const W = container.offsetWidth, H = container.offsetHeight;
+ function renderFloatingEmotions() {
+  const container = document.getElementById('floatingEmotions');
+  container.innerHTML = '<div class="text-center py-10"><div class="loader mx-auto"></div><p class="text-gray-600 mt-4">친구들의 감정 기록을 서버에서 불러오는 중...</p></div>';
 
-      todays.forEach(entry=>{
-        const el = document.createElement('div');
-        el.className = 'floating-emotion';
-        el.textContent = entry.emoji;
+  const todaysData = getAllData().filter(d => d.date === getTodayDateString());
 
-        let left, top, overlaps, attempts=0;
-        do{
-          overlaps = false;
-          left = Math.random()*(W-size);
-          top  = Math.random()*(H-size);
-          for (const pos of positions){
-            if (left < pos.right && left+size > pos.left && top < pos.bottom && top+size > pos.top){ overlaps=true; break; }
-          }
-          attempts++;
-        } while (overlaps && attempts < 100);
-
-        positions.push({ left, top, right:left+size, bottom:top+size });
-        el.style.left = `${left}px`; el.style.top = `${top}px`; el.style.animationDelay = `${Math.random()*5}s`;
-
-       const showDetail = (e)=>{
-       const rect = e.target.getBoundingClientRect();
-       const tip = getTooltip();
-       if (!tip) return;
-
-       // 내용 구성 (번호/감정/이유 채우기)
-       tip.innerHTML = `<strong>${entry.studentNumber}번 (${entry.emotion})</strong><br><span class="text-sm">${entry.reason}</span>`;
-       tip.classList.add('show');
-
-       // 말풍선 위치 계산
-       const w = tip.offsetWidth, h = tip.offsetHeight;
-       let L = rect.left + rect.width/2 - w/2;
-       let T = rect.top - h - 10;
-       if (L < 10) L = 10;
-       if (L + w > window.innerWidth - 10) L = window.innerWidth - w - 10;
-       if (T < 10) T = 10;
-
-       tip.style.left = `${L}px`;
-       tip.style.top  = `${T}px`;
-     };
-
-       const hideDetail = ()=> {
-       const tip = getTooltip();
-       tip?.classList.remove('show');
-     };
-
-
-        el.onmouseenter = showDetail; el.onmouseleave = hideDetail;
-        let t = null;
-        el.addEventListener('touchstart',(e)=>{
-          e.preventDefault(); showDetail({ target: el, getBoundingClientRect:()=> el.getBoundingClientRect(), touches:e.touches });
-          t = setTimeout(hideDetail, 3000);
-        });
-        el.addEventListener('touchend', ()=>{ clearTimeout(t); hideDetail(); });
-        el.addEventListener('touchcancel', ()=>{ clearTimeout(t); hideDetail(); });
-
-        container.appendChild(el);
+  // 레이아웃이 잡힌 뒤 치수 계산을 위해 다음 프레임으로 미룸
+  requestAnimationFrame(() => {
+    if (todaysData.length === 0) {
+      container.innerHTML = '<div class="text-center text-gray-500 py-20">아직 일기를 쓴 친구가 없어요.</div>';
+      return;
     }
+
+    container.innerHTML = '';
+    const positions = [];
+    const emojiSize = 48;
+    const cw = container.clientWidth || container.offsetWidth;
+    const ch = container.clientHeight || container.offsetHeight;
+
+    todaysData.forEach((entry, idx) => {
+      const el = document.createElement('div');
+      el.className = 'floating-emotion';
+      el.textContent = entry.emoji || '🙂';
+
+      // 겹치지 않게 랜덤 배치
+      let left, top, overlap, tries = 0;
+      do {
+        overlap = false;
+        left = Math.random() * Math.max(1, (cw - emojiSize));
+        top  = Math.random() * Math.max(1, (ch - emojiSize));
+        for (const p of positions) {
+          if (left < p.right && left + emojiSize > p.left && top < p.bottom && top + emojiSize > p.top) {
+            overlap = true; break;
+          }
+        }
+        tries++;
+      } while (overlap && tries < 120);
+      positions.push({ left, top, right: left + emojiSize, bottom: top + emojiSize });
+
+      el.style.left = left + 'px';
+      el.style.top  = top  + 'px';
+      el.style.animationDelay = (Math.random() * 5) + 's';
+
+      // 툴팁 표시/숨김
+      const showDetail = () => {
+        const rect = el.getBoundingClientRect();
+        const tip = getTooltip();
+        if (!tip) return;
+
+        tip.innerHTML =
+          '<strong>' + entry.studentNumber + '번 (' + escapeHtml(entry.emotion) + ')</strong><br>' +
+          '<span class="text-sm">' + escapeHtml(entry.reason || '') + '</span>';
+        tip.classList.add('show');
+
+        // 크기 측정 후 위치 계산
+        const w = tip.offsetWidth, h = tip.offsetHeight;
+        let L = rect.left + rect.width/2 - w/2;
+        let T = rect.top - h - 10;
+        if (L < 10) L = 10;
+        if (L + w > window.innerWidth - 10) L = window.innerWidth - w - 10;
+        if (T < 10) T = 10;
+
+        tip.style.left = L + 'px';
+        tip.style.top  = T + 'px';
+      };
+
+      const hideDetail = () => {
+        const tip = getTooltip();
+        if (tip) tip.classList.remove('show');
+      };
+
+      // 마우스
+      el.addEventListener('mouseenter', showDetail);
+      el.addEventListener('mouseleave', hideDetail);
+
+      // 터치(모바일)
+      let hideTimer = null;
+      el.addEventListener('touchstart', (ev) => {
+        ev.preventDefault();
+        showDetail();
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(hideDetail, 3000);
+      }, {passive:false});
+      el.addEventListener('touchend',   () => { clearTimeout(hideTimer); hideDetail(); });
+      el.addEventListener('touchcancel',() => { clearTimeout(hideTimer); hideDetail(); });
+
+      container.appendChild(el);
+    });
+  });
+}
+
 
     /* =========================
        교사 대시보드 / 삭제
