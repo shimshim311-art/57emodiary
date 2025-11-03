@@ -10,31 +10,1086 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
+    /* 폰트 */
     @import url('https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&display=swap');
     body { font-family: 'Gowun Batang', serif; }
+
     .emotion-card:hover { transform: translateY(-2px); }
     .fade-in { animation: fadeIn 0.5s ease-in; }
-    @keyframes fadeIn { from{opacity:0; transform:translateY(20px);} to{opacity:1; transform:translateY(0);} }
-    .floating-emotion{ position:absolute; font-size:2.5rem; cursor:pointer; transition:all .3s ease; animation:float 6s ease-in-out infinite; z-index:10;}
-    .floating-emotion:hover{ transform:scale(1.3); z-index:20; }
-    @keyframes float{0%,100%{transform:translateY(0) rotate(0)}25%{transform:translateY(-10px) rotate(2deg)}50%{transform:translateY(-5px) rotate(-1deg)}75%{transform:translateY(-15px) rotate(1deg)}}
-    .tooltip{ position:fixed; background:rgba(255,255,255,.95); color:#333; padding:12px 16px; border-radius:12px; border:1px solid #ddd; font-size:14px; white-space:normal; max-width:300px; z-index:30; pointer-events:none; opacity:0; transform:translateY(10px); box-shadow:0 4px 15px rgba(0,0,0,.1); transition:opacity .3s, transform .3s;}
-    .tooltip.show{ opacity:1; transform:translateY(0); }
-    .tooltip::after{ content:none; }
-    .chart-container{ position:relative; height:300px; width:100%; }
-    .tab-button{ transition:all .3s ease; }
-    .tab-button.active{ background:#fff; color:#4c51bf; border-color:#e0e7ff; box-shadow:0 2px 4px rgba(0,0,0,.05); }
-    .loader{ border:4px solid #f3f3f3; border-top:4px solid #667eea; border-radius:50%; width:30px; height:30px; animation:spin 1s linear infinite; margin:20px auto; }
-    @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
-    @keyframes fallAndSettle{
-      0%{opacity:0; transform:translateY(-500px) rotate(-180deg)}
-      60%{opacity:1; transform:translateY(0) rotate(var(--final-rotate))}
-      75%{transform:translateY(-10px) rotate(var(--final-rotate))}
-      95%{transform:translateY(0) rotate(var(--final-rotate))}
-      100%{opacity:1; transform:translateY(0) rotate(var(--final-rotate))}
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(20px);} to { opacity: 1; transform: translateY(0);} }
+
+    .floating-emotion {
+      position: absolute; font-size: 2.5rem; cursor: pointer;
+      transition: all 0.3s ease; animation: float 6s ease-in-out infinite; z-index: 10;
     }
-    .falling-candy{ animation:fallAndSettle 6s ease-out forwards; }
+    .floating-emotion:hover { transform: scale(1.3); z-index: 20; }
+    @keyframes float {
+      0%,100%{ transform: translateY(0) rotate(0deg);}
+      25%{ transform: translateY(-10px) rotate(2deg);}
+      50%{ transform: translateY(-5px) rotate(-1deg);}
+      75%{ transform: translateY(-15px) rotate(1deg);}
+    }
+
+    /* 툴팁 (삐침 제거 & 화면 고정) */
+    .tooltip{
+      position: fixed; background: rgba(255,255,255,.95); color:#333;
+      padding:12px 16px; border-radius:12px; border:1px solid #ddd; font-size:14px;
+      white-space: normal; max-width: 300px; z-index:30; pointer-events:none;
+      opacity:0; transform: translateY(10px); box-shadow: 0 4px 15px rgba(0,0,0,.1);
+      transition: opacity .3s, transform .3s;
+    }
+    .tooltip.show{ opacity:1; transform: translateY(0); }
+    .tooltip::after{ content:none; }
+
+    .chart-container{ position:relative; height:300px; width:100%; }
+
+    .tab-button{ transition: all .3s ease; }
+    .tab-button.active{
+      background:#fff; color:#4c51bf; border-color:#e0e7ff;
+      box-shadow:0 2px 4px rgba(0,0,0,.05);
+    }
+
+    .loader{
+      border:4px solid #f3f3f3; border-top:4px solid #667eea; border-radius:50%;
+      width:30px; height:30px; animation: spin 1s linear infinite; margin:20px auto;
+    }
+    @keyframes spin{ 0%{transform: rotate(0)} 100%{transform: rotate(360deg)} }
+
+    /* 사탕(이모지) 낙하 애니메이션 */
+    @keyframes fallAndSettle{
+      0%{ opacity:0; transform: translateY(-500px) rotate(-180deg); }
+      60%{ opacity:1; transform: translateY(0) rotate(var(--final-rotate));}
+      75%{ transform: translateY(-10px) rotate(var(--final-rotate));}
+      95%{ transform: translateY(0) rotate(var(--final-rotate));}
+      100%{ opacity:1; transform: translateY(0) rotate(var(--final-rotate));}
+    }
+    .falling-candy{ animation: fallAndSettle 6s ease-out forwards; }
   </style>
+
+  <script>
+    /* =========================
+       상수 / 전역 상태
+       ========================= */
+    // ✅ 작동 중인 GAS Web App URL 로 교체하세요
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbwXACgqFbq9KL6VV0C5mrY2z9buQ1EIo8sXggck9RcdcLQkrad646ccx5WdaOJPoLsjIA/exec";
+
+    let allDataCache = [];
+    let dataLoaded = false;
+
+    const DB_NAME = 'emotionDiaryDB_v2';
+    const PENDING_DELETES = 'emotionDiary_pendingDeletes';
+    const TEACHER_PASSWORD = 'teacher572';
+
+    // (선택) Gemini API 사용 시 설정
+    const API_KEY = ""; // 필요 시 키 입력
+
+    // 학생 번호 목록
+    const STUDENT_NUMBERS = ["2","3","4","5","6","7","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","30"];
+
+    // 감정/이모지 사전
+    const EMOTIONS = {
+      positive:{'기쁨':'😊','설렘':'🤗','만족':'🙂','평온함':'😇','감사':'🥰','자신감':'😎','희망':'😌','즐거움':'😄','사랑':'😍','뿌듯함':'🤩'},
+      negative:{'슬픔':'😢','분노':'😠','좌절':'😞','두려움':'😨','불안':'😰','외로움':'😔','실망':'😕','후회':'😣','질투':'😒','짜증':'😤'},
+      neutral:{'혼란':'😵','놀람':'😲','긴장':'😬','무기력':'😑','답답함':'😖','억울함':'😤','부끄러움':'😳','의심':'🤔','피곤함':'😴','서운함':'🙁'}
+    };
+    const DEFAULT_EMOJIS = { positive:'😊', negative:'😟', neutral:'😐' };
+
+    let chartInstances = {};
+    let currentStudentForReport = null;
+    let pendingCustomEmotion = {};
+
+    const pages = ['mainPage','studentPage','friendsPage','teacherLogin','teacherDashboard','studentReportPage','studentLogin','noteToTeacherPage'];
+
+    let toastTimeout=null, undoTimeout=null, lastDeletedEntry=null;
+
+    /* DOM 핸들 */
+    const tooltip = (typeof document !== 'undefined') ? document.getElementById('tooltip') : null;
+    const toastEl = (typeof document !== 'undefined') ? document.getElementById('toast') : null;
+
+    /* =========================
+       유틸
+       ========================= */
+    const getTodayDateString = () => {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    };
+
+    const getEmotionType = (emotion, entry=null) => {
+      if (entry && entry.category) return entry.category;
+      for (const type in EMOTIONS){
+        if (EMOTIONS[type][emotion]) return type;
+      }
+      return 'neutral';
+    };
+
+    function showToast(message, actionText=null, actionCallback=null, expiryCallback=null){
+      if (!toastEl) return;
+      clearTimeout(toastTimeout); clearTimeout(undoTimeout);
+      const undoBtn = actionText && actionCallback ? `<button id="undoButton" class="ml-4 font-bold underline text-blue-800">${actionText}</button>` : '';
+      toastEl.innerHTML = `<span>${message}</span>${undoBtn}`;
+      toastEl.classList.remove('hidden','opacity-0');
+      if (actionCallback){
+        document.getElementById('undoButton')?.addEventListener('click', ()=>{
+          clearTimeout(toastTimeout); clearTimeout(undoTimeout); actionCallback();
+        });
+        undoTimeout = setTimeout(()=>{ if (expiryCallback) expiryCallback(); }, 5000);
+      }
+      const hideDelay = actionCallback ? 5500 : 3000;
+      toastTimeout = setTimeout(()=>{
+        toastEl.classList.add('opacity-0');
+        setTimeout(()=> toastEl.classList.add('hidden'), 300);
+      }, hideDelay);
+    }
+
+    /* =========================
+       로컬 캐시
+       ========================= */
+    const getAllData = () => {
+      if (dataLoaded){
+        return allDataCache.map(entry => ({
+          ...entry,
+          id: String(entry.id),
+          synced: entry.synced === true,
+          date: (entry.date || (entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString())),
+          studentNumber: (entry.studentNumber || entry.name),
+          reason: (entry.reason || entry.content),
+          category: (entry.category || entry.tag)
+        }));
+      }
+      const localData = localStorage.getItem(DB_NAME);
+      const arr = localData ? JSON.parse(localData) : [];
+      return arr.map(entry => ({
+        ...entry,
+        id: String(entry.id),
+        synced: entry.synced === true,
+        date: (entry.date || (entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString())),
+        studentNumber: (entry.studentNumber || entry.name),
+        reason: (entry.reason || entry.content),
+        category: (entry.category || entry.tag)
+      }));
+    };
+
+    const saveDataLocally = (data) => {
+      const dataToSave = data.map(entry => ({
+        id: String(entry.id),
+        synced: entry.synced === true,
+        date: (entry.date || (entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString())),
+        studentNumber: (entry.studentNumber || entry.name),
+        emotion: entry.emotion,
+        emoji: entry.emoji,
+        reason: (entry.reason || entry.content),
+        category: (entry.category || entry.tag)
+      }));
+      localStorage.setItem(DB_NAME, JSON.stringify(dataToSave));
+      allDataCache = dataToSave;
+      dataLoaded = true;
+    };
+
+    /* =========================
+       GAS 통신
+       ========================= */
+    async function syncDataFromGAS(isForce=false){
+      if (!isForce && dataLoaded) return true;
+      const btn = document.getElementById('refreshDataBtn');
+      if (btn){ btn.disabled = true; btn.textContent = '불러오는 중...'; }
+
+      try {
+        const res = await fetch(GAS_URL + '?action=readAll', { mode:'cors' });
+        const result = await res.json();
+        if (res.ok && Array.isArray(result)){
+          const normalized = result.map(entry=>({
+            id: String(entry.id),
+            date: entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString(),
+            studentNumber: String(entry.name),
+            emotion: entry.emotion,
+            emoji: entry.emoji,
+            reason: entry.content,
+            category: entry.tag,
+            synced: true
+          }));
+          saveDataLocally(normalized);
+          await flushPendingDeletes();
+          return true;
+        } else {
+          console.error('GAS 데이터 로드 오류:', result);
+          showToast('데이터 로드 중 오류 발생! 로컬 캐시를 사용합니다.');
+          allDataCache = getAllData(); dataLoaded = true; return false;
+        }
+      } catch (e){
+        console.error('Fetch Error (ReadAll):', e);
+        showToast('서버 통신 오류로 데이터를 불러올 수 없습니다. 로컬 캐시를 사용합니다.');
+        allDataCache = getAllData(); dataLoaded = true; return false;
+      } finally {
+        if (btn){ btn.disabled = false; btn.textContent = '새로고침'; }
+      }
+    }
+
+    function enqueuePendingDelete(idStr){
+      try{
+        const q = JSON.parse(localStorage.getItem(PENDING_DELETES)||'[]');
+        if (!q.includes(idStr)) q.push(idStr);
+        localStorage.setItem(PENDING_DELETES, JSON.stringify(q));
+      }catch{}
+    }
+
+    async function flushPendingDeletes(){
+      const q = JSON.parse(localStorage.getItem(PENDING_DELETES)||'[]');
+      if (!q.length) return;
+      const remains = [];
+      for (const idStr of q){
+        try{
+          const res = await fetch(GAS_URL, {
+            method:'POST', mode:'cors',
+            headers:{'Content-Type':'text/plain;charset=utf-8'},
+            body: JSON.stringify({ action:'delete', id:idStr, id_numeric:(idStr.match(/\d+/)?.[0] ?? null) })
+          });
+          const result = await res.json();
+          const ok = res.ok && result.status === 'success';
+          if (!ok){
+            if (!(result.message && result.message.includes('삭제할 ID를 찾을 수 없습니다'))){
+              remains.push(idStr);
+            }
+          }
+        } catch {
+          remains.push(idStr);
+        }
+      }
+      localStorage.setItem(PENDING_DELETES, JSON.stringify(remains));
+    }
+
+    /* =========================
+       차트 도우미
+       ========================= */
+    function renderChart(canvasOrId, type, data, options){
+      let el = null;
+      if (typeof canvasOrId === 'string'){
+        el = document.getElementById(canvasOrId) || document.querySelector(canvasOrId);
+      } else if (canvasOrId instanceof HTMLCanvasElement){
+        el = canvasOrId;
+      }
+      if (!el){ console.error('Canvas not found:', canvasOrId); return; }
+      const key = el.id || el.dataset.chartId || (el.dataset.chartId = `chart-${Math.random()}`);
+      if (chartInstances[key]) chartInstances[key].destroy();
+      const ctx = el.getContext('2d');
+      chartInstances[key] = new Chart(ctx, { type, data, options });
+    }
+
+    /* =========================
+       페이지 전환 / 폼 채우기
+       ========================= */
+    function showPage(pageId){
+      pages.forEach(pid=>{
+        const el = document.getElementById(pid);
+        if (el){ el.classList.add('hidden'); el.classList.remove('fade-in'); }
+      });
+      const target = document.getElementById(pageId);
+      if (!target){ console.error('No page:', pageId); return; }
+      target.classList.remove('hidden'); target.classList.add('fade-in');
+      window.scrollTo(0,0);
+
+      if (pageId === 'friendsPage'){
+        syncDataFromGAS(true).then(()=> renderFloatingEmotions());
+      }
+      if (pageId === 'teacherDashboard') renderTeacherDashboard();
+      if (['studentLogin','studentPage','noteToTeacherPage'].includes(pageId)) populateForms();
+    }
+
+    function populateForms(){
+      const numSelect = document.getElementById('studentNumber');
+      const loginNum = document.getElementById('studentLoginNumber');
+      const noteNum = document.getElementById('noteStudentNumber');
+      const opts = ['<option value="">번호 선택</option>'].concat(
+        STUDENT_NUMBERS.map(n=> `<option value="${n}">${n}번</option>`)
+      ).join('');
+      if (numSelect) numSelect.innerHTML = opts;
+      if (loginNum) loginNum.innerHTML = opts;
+      if (noteNum) noteNum.innerHTML = opts;
+
+      // 이모티콘 칸 채우기
+      Object.entries(EMOTIONS).forEach(([category, emotions])=>{
+        const container = document.getElementById(`${category}Emotions`);
+        if (!container) return;
+        container.innerHTML = '';
+        const bg = category==='positive' ? 'bg-green-50 hover:bg-green-100'
+                 : category==='negative' ? 'bg-red-50 hover:bg-red-100'
+                 : 'bg-gray-50 hover:bg-gray-100';
+        for (const [emotion,emoji] of Object.entries(emotions)){
+          container.innerHTML += `
+            <div class="emotion-card ${bg} p-3 rounded-lg cursor-pointer text-center text-xs"
+                 onclick="selectEmotion('${emotion}','${emoji}','${category}', this)">
+              <div class="text-2xl mb-1">${emoji}</div>
+              <div class="font-medium">${emotion}</div>
+            </div>`;
+        }
+      });
+    }
+
+    function selectEmotion(emotion,emoji,category,el){
+      document.querySelectorAll('.emotion-card').forEach(x=> x.classList.remove('ring-2','ring-blue-500'));
+      if (el) el.classList.add('ring-2','ring-blue-500');
+      document.getElementById('selectedEmotion').value = emotion;
+      document.getElementById('selectedEmoji').value = emoji;
+      document.getElementById('selectedCategory').value = category;
+    }
+    function showCustomEmotionInput(){ document.getElementById('customEmotionContainer').classList.remove('hidden'); }
+    function hideCustomEmotionInput(){ document.getElementById('customEmotionContainer').classList.add('hidden'); }
+
+    async function callGeminiAPI(prompt){
+      if (!API_KEY) return null;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
+      try{
+        let response; let delay = 1000;
+        for (let i=0;i<5;i++){
+          response = await fetch(url, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ contents:[{ parts:[{ text: prompt }]}] })
+          });
+          if (response.ok) break;
+          if (response.status===429 || response.status>=500){
+            await new Promise(r=> setTimeout(r, delay)); delay *= 2;
+          } else {
+            return null;
+          }
+        }
+        if (!response.ok) return null;
+        const result = await response.json();
+        return result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+      } catch { return null; }
+    }
+
+    async function handleCustomEmotion(){
+      const inputEl = document.getElementById('customEmotionInput');
+      const text = inputEl.value.trim();
+      if (!text) return showToast('감정을 입력해주세요.');
+      const btn = inputEl.nextElementSibling;
+      btn.disabled = true; btn.textContent = '...';
+
+      pendingCustomEmotion = { text, emoji: null };
+
+      const prompt = `다음 한국어 감정을 분석해서 가장 어울리는 대표 얼굴 표정 이모지(emoji)와 감정의 긍정/부정/중립 분류를 JSON 형식으로 응답해 주세요. category는 'positive', 'negative', 'neutral' 중 하나여야 합니다. 다른 설명 없이 JSON 객체만 응답해야 합니다. 형식: {"emoji": "...", "category": "..."}\n\n감정: "${text}"`;
+      const resp = await callGeminiAPI(prompt);
+      btn.disabled = false; btn.textContent = '확인';
+
+      if (resp){
+        try{
+          const cleaned = resp.replace(/```json\n?/,'').replace(/```$/,'');
+          const obj = JSON.parse(cleaned);
+          if (obj.emoji && obj.category && /\p{Emoji}/u.test(obj.emoji)){
+            pendingCustomEmotion.emoji = obj.emoji.slice(0,2);
+            return setCustomCategory(obj.category);
+          }
+        } catch {}
+      }
+      document.getElementById('fallbackEmotionText').textContent = `"${text}"`;
+      document.getElementById('categoryModal').classList.remove('hidden');
+    }
+
+    async function setCustomCategory(category){
+      const text = pendingCustomEmotion.text;
+      let emoji = pendingCustomEmotion.emoji;
+      if (!emoji){
+        const rec = await callGeminiAPI(`다음 한국어 감정에 어울리는 얼굴 이모지 하나만 응답: "${text}"`);
+        if (rec && /\p{Emoji}/u.test(rec)) emoji = rec.slice(0,2);
+        else emoji = DEFAULT_EMOJIS[category];
+      }
+      selectEmotion(text, emoji, category, null);
+      showToast(`'${text} ${emoji}' 감정이 선택되었습니다.`);
+      document.getElementById('categoryModal').classList.add('hidden');
+      pendingCustomEmotion = {};
+    }
+
+    /* =========================
+       제출/저장 처리
+       ========================= */
+    async function onEmotionSubmit(e){
+      e.preventDefault();
+      const today = getTodayDateString();
+      const studentNumber = document.getElementById('studentNumber').value;
+      const selectedEmotion = document.getElementById('selectedEmotion').value;
+      const selectedEmoji = document.getElementById('selectedEmoji').value;
+      const selectedCategory = document.getElementById('selectedCategory').value || 'neutral';
+      const reason = document.getElementById('emotionReason').value.trim();
+
+      if (!studentNumber) return showToast('번호를 선택해주세요!');
+      if (!selectedEmotion) return showToast('감정을 선택해주세요!');
+      if (!reason) return showToast('감정의 이유를 입력해주세요!');
+
+      if (getAllData().find(d=> d.date===today && d.studentNumber===studentNumber)){
+        return showToast('이미 오늘 감정일기를 작성했어요!');
+      }
+
+      // 시트 포맷
+      const newEntryForGAS = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        name: studentNumber,
+        emotion: selectedEmotion,
+        tag: selectedCategory,
+        content: reason,
+        emoji: selectedEmoji
+      };
+      // 내부 캐시 포맷
+      const newEntryInternal = {
+        id: newEntryForGAS.id,
+        date: today,
+        studentNumber,
+        emotion: selectedEmotion,
+        emoji: selectedEmoji,
+        reason,
+        category: selectedCategory,
+        synced: false
+      };
+
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true; submitBtn.textContent = '저장 중...';
+      let serverSuccess = false;
+
+      try{
+        const res = await fetch(GAS_URL, {
+          method:'POST', mode:'cors',
+          headers:{'Content-Type':'text/plain;charset=utf-8'},
+          body: JSON.stringify({ action:'create', data: newEntryForGAS })
+        });
+        const txt = await res.text();
+        let result;
+        try{ if (!txt) throw new Error('EMPTY'); result = JSON.parse(txt); }
+        catch{ result = { status:'error', message:'응답 파싱 오류' }; }
+
+        if (res.ok && result.status === 'success'){
+          const serverId = String(result.id ?? newEntryForGAS.id);
+          const entry = { ...newEntryInternal, id: serverId, synced: true };
+          allDataCache.push(entry);
+          serverSuccess = true;
+          const msgs = [
+            "오늘도 힘내세요! 멋진 하루가 될 거예요. 화이팅!",
+            "아침부터 기록하는 당신, 정말 멋져요! 응원합니다!",
+            "좋은 시작이에요! 오늘 하루도 긍정 에너지 가득하길!",
+            "감사합니다! 당신의 하루를 응원할게요. 화이팅!",
+            "기록 완료! 오늘 하루도 반짝반짝 빛나길 바라요."
+          ];
+          showToast(msgs[Math.floor(Math.random()*msgs.length)]);
+        } else {
+          allDataCache.push(newEntryInternal);
+          showToast(`저장 실패: ${result.message || '서버 오류. 교사에게 문의하세요.'}`);
+        }
+      } catch (err){
+        allDataCache.push(newEntryInternal);
+        showToast('서버 통신 오류! 기록을 로컬에 임시 저장했습니다. 다시 시도해 주세요.');
+      } finally {
+        submitBtn.disabled = false; submitBtn.textContent = '💾 감정일기 저장하기';
+        saveDataLocally(allDataCache);
+        e.target.reset();
+        document.querySelectorAll('.emotion-card').forEach(el=> el.classList.remove('ring-2','ring-blue-500'));
+        if (serverSuccess) showPage('mainPage');
+      }
+    }
+
+    async function onSendNote(e){
+      e.preventDefault();
+      const studentNumber = document.getElementById('noteStudentNumber').value;
+      const content = document.getElementById('noteContent').value.trim();
+      if (!studentNumber || !content) return showToast('번호 선택과 쪽지 내용을 모두 입력해주세요.');
+
+      const entry = { timestamp:new Date().toISOString(), name:studentNumber, content };
+      const btn = e.target.querySelector('button[type="submit"]');
+      btn.disabled = true; btn.textContent = '전송 중...';
+
+      try{
+        const res = await fetch(GAS_URL, {
+          method:'POST', mode:'cors',
+          headers:{'Content-Type':'text/plain;charset=utf-8'},
+          body: JSON.stringify({ action:'sendNote', data: entry })
+        });
+        const txt = await res.text();
+        let result; try{ if (!txt) throw new Error('EMPTY'); result = JSON.parse(txt);} catch{ result = {status:'error'}; }
+        if (res.ok && result.status==='success'){
+          showToast('쪽지가 선생님께 성공적으로 전달되었습니다! (비밀 보장)');
+          e.target.reset(); showPage('mainPage');
+        } else {
+          showToast('쪽지 전송 실패: 서버 오류. GAS 설정을 확인해주세요.');
+        }
+      } catch {
+        showToast('서버 통신 오류로 쪽지 전송에 실패했습니다.');
+      } finally {
+        btn.disabled = false; btn.textContent = '💌 쪽지 전송하기';
+      }
+    }
+
+    /* =========================
+       친구들 페이지
+       ========================= */
+    function renderFloatingEmotions(){
+      const container = document.getElementById('floatingEmotions');
+      container.innerHTML = `
+        <div class="text-center py-10">
+          <div class="loader mx-auto"></div>
+          <p class="text-gray-600 mt-4">친구들의 감정 기록을 서버에서 불러오는 중...</p>
+        </div>`;
+      const todays = getAllData().filter(d=> d.date === getTodayDateString());
+      if (!todays.length){
+        container.innerHTML = `<div class="text-center text-gray-500 py-20">아직 일기를 쓴 친구가 없어요.</div>`;
+        return;
+      }
+      container.innerHTML = '';
+      const positions = [];
+      const size = 48;
+      const W = container.offsetWidth, H = container.offsetHeight;
+
+      todays.forEach(entry=>{
+        const el = document.createElement('div');
+        el.className = 'floating-emotion';
+        el.textContent = entry.emoji;
+
+        let left, top, overlaps, attempts=0;
+        do{
+          overlaps = false;
+          left = Math.random()*(W-size);
+          top  = Math.random()*(H-size);
+          for (const pos of positions){
+            if (left < pos.right && left+size > pos.left && top < pos.bottom && top+size > pos.top){ overlaps=true; break; }
+          }
+          attempts++;
+        } while (overlaps && attempts < 100);
+
+        positions.push({ left, top, right:left+size, bottom:top+size });
+        el.style.left = `${left}px`; el.style.top = `${top}px`; el.style.animationDelay = `${Math.random()*5}s`;
+
+        const showDetail = (e)=>{
+          const rect = e.target.getBoundingClientRect();
+          tooltip.innerHTML = `<strong>${entry.studentNumber}번 (${entry.emotion})</strong><br><span class="text-sm">${entry.reason}</span>`;
+          tooltip.classList.add('show');
+          let w = tooltip.offsetWidth, h = tooltip.offsetHeight;
+          let L = rect.left + rect.width/2 - w/2;
+          let T = rect.top - h - 10;
+          if (L < 10) L = 10;
+          if (L + w > window.innerWidth - 10) L = window.innerWidth - w - 10;
+          if (T < 10) T = 10;
+          tooltip.style.left = `${L}px`; tooltip.style.top = `${T}px`;
+        };
+        const hideDetail = ()=> tooltip.classList.remove('show');
+
+        el.onmouseenter = showDetail; el.onmouseleave = hideDetail;
+        let t = null;
+        el.addEventListener('touchstart',(e)=>{
+          e.preventDefault(); showDetail({ target: el, getBoundingClientRect:()=> el.getBoundingClientRect(), touches:e.touches });
+          t = setTimeout(hideDetail, 3000);
+        });
+        el.addEventListener('touchend', ()=>{ clearTimeout(t); hideDetail(); });
+        el.addEventListener('touchcancel', ()=>{ clearTimeout(t); hideDetail(); });
+
+        container.appendChild(el);
+      });
+    }
+
+    /* =========================
+       교사 대시보드 / 삭제
+       ========================= */
+    function handleTeacherLogin(ev){
+      if (ev && ev.preventDefault) ev.preventDefault();
+      const pw = document.getElementById('teacherPassword');
+      if (pw.value === TEACHER_PASSWORD){
+        document.getElementById('loginError').classList.add('hidden'); pw.value='';
+        showPage('teacherDashboard');
+      } else {
+        document.getElementById('loginError').classList.remove('hidden');
+      }
+      return false;
+    }
+    function logoutTeacher(){ showPage('mainPage'); }
+
+    async function clearLocalCache(){
+      localStorage.removeItem(DB_NAME);
+      localStorage.removeItem(PENDING_DELETES);
+      allDataCache = []; dataLoaded = false;
+      showToast('브라우저 캐시를 삭제하고 서버에서 최신 데이터를 불러옵니다...');
+      await syncDataFromGAS(true);
+      if (document.getElementById('teacherDashboard').classList.contains('hidden')) showPage('mainPage');
+      else renderTeacherDashboard();
+    }
+
+    function switchDashboardTab(tab){
+      document.getElementById('dailyTab').classList.toggle('active', tab==='daily');
+      document.getElementById('monthlyTab').classList.toggle('active', tab==='monthly');
+      document.getElementById('notesTab').classList.toggle('active', tab==='notes');
+
+      document.getElementById('dailyReportContent').classList.toggle('hidden', tab!=='daily');
+      document.getElementById('monthlyReportContent').classList.toggle('hidden', tab!=='monthly');
+      document.getElementById('notesContent').classList.toggle('hidden', tab!=='notes');
+
+      document.getElementById('dashboardDate').classList.toggle('hidden', tab!=='daily');
+      document.getElementById('dashboardMonth').classList.toggle('hidden', tab!=='monthly');
+
+      if (tab==='daily'){ renderDailyReport(); renderStudentListForDashboard(); }
+      if (tab==='monthly') renderMonthlyReport();
+      if (tab==='notes') renderTeacherNotes();
+    }
+
+    function renderTeacherDashboard(){
+      const datePicker = document.getElementById('dashboardDate');
+      const monthPicker = document.getElementById('dashboardMonth');
+      datePicker.value = datePicker.value || getTodayDateString();
+      const today = new Date();
+      monthPicker.value = monthPicker.value || `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+
+      if (!datePicker.dataset.listenerAttached){
+        datePicker.addEventListener('change', ()=>{ renderDailyReport(); renderStudentListForDashboard(); });
+        datePicker.dataset.listenerAttached = 'true';
+      }
+      if (!monthPicker.dataset.listenerAttached){
+        monthPicker.addEventListener('change', renderMonthlyReport);
+        monthPicker.dataset.listenerAttached = 'true';
+      }
+      const activeId = document.querySelector('.tab-button.active')?.id;
+      switchDashboardTab(activeId==='monthlyTab' ? 'monthly' : (activeId==='notesTab' ? 'notes' : 'daily'));
+      if (document.querySelector('.tab-button.active')?.id!=='notesTab') renderStudentListForDashboard();
+    }
+
+    function handleListClick(e){
+      if (e.target.classList.contains('delete-btn')){
+        const rawId = e.target.dataset.id;
+        deleteEntry(rawId);
+      }
+    }
+
+    async function deleteEntry(id){
+      const idStr = String(id);
+      if (!idStr){ showToast('삭제 오류: ID가 비어 있습니다.'); return; }
+      const btn = document.querySelector(`button[data-id="${idStr}"]`);
+      if (btn){ btn.disabled = true; btn.textContent = '...'; }
+
+      const idx = allDataCache.findIndex(e=> String(e.id)===idStr);
+      if (idx === -1){
+        showToast('삭제 오류: 해당 기록을 찾을 수 없습니다.');
+        if (btn){ btn.disabled=false; btn.textContent='삭제'; }
+        return;
+      }
+
+      lastDeletedEntry = allDataCache.splice(idx,1)[0];
+      saveDataLocally(allDataCache);
+      refreshAfterDelete();
+
+      showToast('기록이 삭제되었습니다.','되돌리기', ()=> undoDelete(), ()=> confirmDelete());
+    }
+
+    function undoDelete(){
+      if (!lastDeletedEntry) return;
+      allDataCache.push(lastDeletedEntry);
+      allDataCache.sort((a,b)=> a.date.localeCompare(b.date));
+      saveDataLocally(allDataCache);
+      refreshAfterDelete();
+      showToast('삭제가 취소되었습니다.');
+      lastDeletedEntry=null; clearTimeout(undoTimeout);
+    }
+
+    async function confirmDelete(){
+      if (!lastDeletedEntry) return;
+      const entry = lastDeletedEntry;
+      lastDeletedEntry = null;
+      if (entry.synced !== true) return; // 로컬-only는 끝
+
+      try{
+        const res = await fetch(GAS_URL, {
+          method:'POST', mode:'cors',
+          headers:{'Content-Type':'text/plain;charset=utf-8'},
+          body: JSON.stringify({ action:'delete', id: entry.id, id_numeric:(String(entry.id).match(/\d+/)?.[0] ?? null)})
+        });
+        let result={}; try{ const t = await res.text(); result = t? JSON.parse(t):{}; } catch {}
+        if (!(res.ok && result.status==='success')) enqueuePendingDelete(String(entry.id));
+      } catch {
+        enqueuePendingDelete(String(entry.id));
+      }
+    }
+
+    function refreshAfterDelete(){
+      if (!document.getElementById('teacherDashboard').classList.contains('hidden') &&
+          document.getElementById('dailyTab').classList.contains('active')){
+        renderDailyReport(); renderStudentListForDashboard();
+      } else if (!document.getElementById('studentReportPage').classList.contains('hidden') && currentStudentForReport){
+        renderStudentReport(currentStudentForReport);
+      }
+    }
+
+    function renderDailyReport(){
+      const selectedDate = document.getElementById('dashboardDate').value;
+      document.getElementById('dailyDistributionTitle').textContent = `${selectedDate} 감정 분포`;
+      document.getElementById('dailyEntriesTitle').textContent = `${selectedDate}의 기록`;
+
+      const daily = getAllData().filter(d=> d.date===selectedDate);
+      const counts = { positive:0, negative:0, neutral:0 };
+      daily.forEach(e=> counts[getEmotionType(e.emotion,e)]++);
+
+      document.getElementById('todaySubmissionCount').textContent = `${daily.length} / ${STUDENT_NUMBERS.length}`;
+      document.getElementById('todayPositiveCount').textContent = counts.positive;
+      document.getElementById('todayNegativeCount').textContent = counts.negative;
+
+      renderChart('dailyDistributionChart','pie',{
+        labels:['긍정','부정','중립'],
+        datasets:[{ data:Object.values(counts), backgroundColor:['#4CAF50','#F44336','#FFC107']}]
+      }, { responsive:true, maintainAspectRatio:false });
+
+      const list = document.getElementById('dailyEntriesList');
+      list.innerHTML = daily.length ? '' : '<p class="text-gray-500">선택한 날짜에 기록이 없습니다.</p>';
+      daily.forEach(entry=>{
+        list.innerHTML += `
+          <div class="border-b pb-3 flex items-center">
+            <div class="flex-grow">
+              <p class="font-bold">${entry.emoji} ${entry.studentNumber}번 - <span class="font-medium">${entry.emotion}</span></p>
+              <p class="text-sm text-gray-600 pl-7">${entry.reason}</p>
+            </div>
+            <button data-id="${String(entry.id)}"
+              class="delete-btn bg-red-100 text-red-600 hover:bg-red-200 text-xs font-bold py-1 px-2 rounded-md">
+              삭제
+            </button>
+          </div>`;
+      });
+      list.removeEventListener('click', handleListClick);
+      list.addEventListener('click', handleListClick);
+      renderStudentListForDashboard();
+    }
+
+    function renderMonthlyReport(){
+      const monthString = document.getElementById('dashboardMonth').value;
+      const [y,m] = monthString.split('-').map(Number);
+      const monthData = getAllData().filter(d=> d.date.startsWith(monthString));
+      const days = new Date(y,m,0).getDate();
+
+      const counts = { positive:0, negative:0, neutral:0 };
+      monthData.forEach(e=> counts[getEmotionType(e.emotion,e)]++);
+      document.getElementById('monthlyPositiveCount').textContent = counts.positive;
+      document.getElementById('monthlyNeutralCount').textContent = counts.neutral;
+      document.getElementById('monthlyNegativeCount').textContent = counts.negative;
+
+      renderChart('monthlyDistributionChart','doughnut',{
+        labels:['긍정','부정','중립'],
+        datasets:[{ data:Object.values(counts), backgroundColor:['#4CAF50','#F44336','#FFC107']}]
+      }, { responsive:true, maintainAspectRatio:false });
+
+      // 간단 추이(스택 예시 대신 placeholder)
+      const labels = Array.from({length:days},(_,i)=> i+1);
+      const dailyPos = labels.map(day=>{
+        const ds = monthData.filter(d=> d.date === `${monthString}-${String(day).padStart(2,'0')}`);
+        return ds.filter(d=> getEmotionType(d.emotion,d)==='positive').length;
+      });
+      const dailyNeu = labels.map(day=>{
+        const ds = monthData.filter(d=> d.date === `${monthString}-${String(day).padStart(2,'0')}`);
+        return ds.filter(d=> getEmotionType(d.emotion,d)==='neutral').length;
+      });
+      const dailyNeg = labels.map(day=>{
+        const ds = monthData.filter(d=> d.date === `${monthString}-${String(day).padStart(2,'0')}`);
+        return ds.filter(d=> getEmotionType(d.emotion,d)==='negative').length;
+      });
+
+      renderChart('monthlyTrendChart','bar',{
+        labels,
+        datasets:[
+          { label:'긍정', data:dailyPos, backgroundColor:'#4CAF50' },
+          { label:'중립', data:dailyNeu, backgroundColor:'#FFC107' },
+          { label:'부정', data:dailyNeg, backgroundColor:'#F44336' }
+        ]
+      }, { responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } });
+    }
+
+    function renderStudentListForDashboard(){
+      const box = document.getElementById('studentReportLinks'); if (!box) return;
+      box.innerHTML = '';
+      const selectedDate = document.getElementById('dashboardDate').value;
+      const submitted = getAllData().filter(d=> d.date===selectedDate).map(d=> d.studentNumber);
+      STUDENT_NUMBERS.sort((a,b)=> parseInt(a)-parseInt(b)).forEach(num=>{
+        const ok = submitted.includes(num);
+        const cls = ok ? 'bg-blue-200 hover:bg-blue-300 text-blue-800' : 'bg-gray-100 hover:bg-gray-200 text-gray-700';
+        box.innerHTML += `<button onclick="renderStudentReport('${num}', true)" class="${cls} font-medium py-2 px-3 rounded-lg transition">${num}번</button>`;
+      });
+    }
+
+    async function refreshDashboardData(){
+      const ok = await syncDataFromGAS(true);
+      if (ok){ renderTeacherDashboard(); showToast('대시보드가 최신 기록으로 새로고침되었습니다.'); }
+    }
+
+    async function renderTeacherNotes(){
+      const list = document.getElementById('notesList');
+      const err = document.getElementById('notesLoadingError');
+      list.innerHTML = '<div class="text-center py-10"><div class="loader mx-auto"></div><p class="text-gray-600 mt-4">쪽지 불러오는 중...</p></div>';
+      err.classList.add('hidden');
+      try{
+        const res = await fetch(GAS_URL + '?action=readNotes', { mode:'cors' });
+        const result = await res.json();
+        if (res.ok && Array.isArray(result)){
+          list.innerHTML = '';
+          if (!result.length){
+            list.innerHTML = '<p class="text-gray-500 text-center py-10">도착한 쪽지가 없습니다.</p>'; return;
+          }
+          result.slice().reverse().forEach(note=>{
+            const ts = new Date(note.timestamp).toLocaleString('ko-KR',{year:'2-digit',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+            list.innerHTML += `
+              <div class="bg-gray-50 p-4 rounded-xl shadow-md border border-gray-200">
+                <div class="flex justify-between items-start mb-2 border-b pb-2">
+                  <span class="font-bold text-lg text-gray-800">💌 ${note.name}번 학생</span>
+                  <span class="text-xs text-gray-500">${ts}</span>
+                </div>
+                <p class="text-gray-700 whitespace-pre-wrap">${note.content}</p>
+              </div>`;
+          });
+        } else {
+          list.innerHTML=''; err.classList.remove('hidden');
+        }
+      } catch {
+        list.innerHTML=''; err.classList.remove('hidden'); err.textContent='서버 통신 오류: 쪽지를 불러올 수 없습니다.';
+      }
+    }
+
+    /* =========================
+       학생 리포트 (제목에 월 표시 고정)
+       ========================= */
+    async function renderStudentReportContent(containerSelector, studentNumber, monthString){
+      const container = document.querySelector(containerSelector);
+      if (!container){ console.error('Container not found:', containerSelector); return; }
+
+      const studentAll = getAllData().filter(d=> d.studentNumber===studentNumber);
+      const studentMonth = studentAll.filter(d=> d.date.startsWith(monthString));
+
+      const [year, month] = monthString.split('-').map(Number);
+      const monthTitle = `${year}년 ${month}월`;
+      const monthLabel = `${month}월`;
+
+      // 상단 제목들
+      container.querySelector('#candyJarTitle').textContent = `🍬 감정 사탕 병 (${monthTitle})`;
+      container.querySelector('#monthlyRecordsTitle').textContent = `${monthTitle}의 전체 기록`;
+
+      // ✅ 요청 사항: "(선택한 달)의 감정분포/감정변화" → "11월의 감정분포/감정변화"
+      const emotionTitleEl = container.querySelector('#myEmotionTitle');
+      const trendTitleEl   = container.querySelector('#myTrendTitle');
+      if (emotionTitleEl) emotionTitleEl.textContent = `${monthLabel}의 감정분포`;
+      if (trendTitleEl)   trendTitleEl.textContent   = `${monthLabel}의 감정변화`;
+
+      // 통계
+      const totalMonthRecords = studentMonth.length;
+      const counts = { positive:0, negative:0, neutral:0 };
+      studentMonth.forEach(e=> counts[getEmotionType(e.emotion,e)]++);
+
+      container.querySelector('#myTotalRecords').textContent = totalMonthRecords;
+      container.querySelector('#myPositiveCount').textContent = counts.positive;
+      container.querySelector('#myNeutralCount').textContent  = counts.neutral;
+      container.querySelector('#myNegativeCount').textContent = counts.negative;
+
+      renderChart(container.querySelector('#myEmotionChart'),'doughnut',{
+        labels:['긍정','부정','중립'],
+        datasets:[{ data:Object.values(counts), backgroundColor:['#4CAF50','#F44336','#FFC107']}]
+      }, { responsive:true, maintainAspectRatio:false });
+
+      // 감정 변화(라인)
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const dailyTrends = Array.from({length:daysInMonth},(_,i)=>{
+        const dayStr = `${monthString}-${String(i+1).padStart(2,'0')}`;
+        const dayData = studentMonth.find(d=> d.date===dayStr);
+        if (!dayData) return null;
+        const c = getEmotionType(dayData.emotion, dayData);
+        if (c==='positive') return 1;
+        if (c==='negative') return -1;
+        return 0;
+      });
+
+      renderChart(container.querySelector('#myTrendChart'),'line',{
+        labels: Array.from({length:daysInMonth},(_,i)=> i+1),
+        datasets:[{
+          label:'감정 변화', data: dailyTrends, borderColor:'#667eea', backgroundColor:'#667eea20', fill:true, tension:.1, spanGaps:true
+        }]
+      }, {
+        responsive:true, maintainAspectRatio:false,
+        scales:{
+          x:{ title:{ display:true, text:`${month}월` }},
+          y:{ min:-1.5, max:1.5, ticks:{ callback:(v)=> v===1?'긍정': v===0?'중립': v===-1?'부정': '' } }
+        }
+      });
+
+      // TOP5 (해당 월 기준)
+      const topBox = container.querySelector('#myTopEmotions'); topBox.innerHTML='';
+      const emoCounts = studentMonth.reduce((acc,c)=> (acc[c.emotion]=(acc[c.emotion]||0)+1, acc),{});
+      const sorted = Object.entries(emoCounts).sort((a,b)=> b[1]-a[1]).slice(0,5);
+      if (sorted.length){
+        sorted.forEach(([emo,count],i)=>{
+          const emoji = (studentAll.find(d=> d.emotion===emo)?.emoji) || DEFAULT_EMOJIS[getEmotionType(emo)];
+          topBox.innerHTML += `<div class="flex items-center justify-between text-gray-700 border-b pb-2"><span>${i+1}. ${emoji} ${emo}</span><span class="font-bold">${count}회</span></div>`;
+        });
+      } else {
+        topBox.innerHTML = '<p class="text-gray-500">기록이 없습니다.</p>';
+      }
+
+      // 감정 사탕 병 (해당 월)
+      const candyContainer = container.querySelector('#candyContainer');
+      candyContainer.innerHTML = '';
+      if (studentMonth.length){
+        const jarW = 400*1.09, jarH = 500*1.09;
+        const candySize = 126;
+        const offX = (candyContainer.offsetWidth - jarW)/2;
+        const offY = (candyContainer.offsetHeight - jarH)/2;
+        const stackW = candySize*0.7, maxPerRow = Math.floor((jarW*0.8)/stackW);
+        const stackH = candySize*0.3;
+
+        studentMonth.forEach((entry,idx)=>{
+          const candy = document.createElement('div');
+          candy.className = 'w-28 h-28 rounded-full flex items-center justify-center text-7xl absolute falling-candy';
+          candy.textContent = entry.emoji;
+          candy.title = `${entry.date}: ${entry.emotion}`;
+
+          const row = Math.floor(idx / maxPerRow);
+          const col = idx % maxPerRow;
+          let bottom = offY + (row*stackH) + (Math.random()*5 - 2.5);
+          let left   = offX + (jarW*0.1) + (col*stackW) + (row%2===1 ? stackW/2 : 0) + (Math.random()*10 - 5);
+          if (left + candySize > offX + jarW*0.9) left -= stackW/2;
+
+          candy.style.left = `${left}px`; candy.style.bottom = `${bottom}px`;
+          candy.style.animationDelay = `${idx * 0.15}s`;
+          candy.style.setProperty('--final-rotate', `${Math.random()*360}deg`);
+
+          candy.onmouseenter = (e)=>{
+            tooltip.innerHTML = `<strong>${entry.date}</strong><br><span>${entry.emotion} ${entry.emoji}</span><br><span class="text-sm">${entry.reason}</span>`;
+            tooltip.classList.add('show');
+            const r = e.target.getBoundingClientRect();
+            tooltip.style.left = `${r.left + r.width/2 - tooltip.offsetWidth/2}px`;
+            tooltip.style.top  = `${r.top - tooltip.offsetHeight - 5}px`;
+          };
+          candy.onmouseleave = ()=> tooltip.classList.remove('show');
+          candyContainer.appendChild(candy);
+        });
+      } else {
+        candyContainer.innerHTML = '<p class="text-gray-500">선택한 달에 기록된 감정 사탕이 없습니다.</p>';
+      }
+
+      // 해당 달 기록 목록
+      const rec = container.querySelector('#myRecentRecords');
+      rec.innerHTML = '';
+      if (studentMonth.length){
+        studentMonth.slice().sort((a,b)=> b.date.localeCompare(a.date)).forEach(e=>{
+          rec.innerHTML += `
+            <div class="bg-gray-50 p-4 rounded-xl shadow-sm border-l-4 ${e.category==='positive'?'border-green-500': e.category==='negative'?'border-red-500':'border-gray-500'}">
+              <p class="font-semibold text-gray-800">${e.date} &middot; ${e.emotion} ${e.emoji}</p>
+              <p class="text-sm text-gray-600 mt-1 whitespace-pre-wrap">${e.reason}</p>
+            </div>`;
+        });
+      } else {
+        rec.innerHTML = '<p class="text-gray-500">선택한 달의 기록이 없습니다.</p>';
+      }
+    }
+
+    function renderStudentReport(studentNumber, isTeacherView=true){
+      currentStudentForReport = studentNumber;
+      showPage('studentReportPage');
+
+      document.getElementById('studentReportNumber').textContent = `${studentNumber}번 학생의 리포트`;
+
+      const monthPicker = document.getElementById('studentReportMonth');
+      if (!monthPicker.dataset.listenerAttached){
+        monthPicker.addEventListener('change', ()=> renderStudentReport(studentNumber, isTeacherView));
+        monthPicker.dataset.listenerAttached = 'true';
+      }
+      const today = new Date();
+      const defMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+      monthPicker.value = monthPicker.value || defMonth;
+      const selectedMonth = monthPicker.value;
+
+      document.getElementById('dashboardButton').classList.toggle('hidden', !isTeacherView);
+      document.getElementById('mainPageButton').classList.toggle('hidden', isTeacherView);
+
+      renderStudentReportContent('#studentReportPage', studentNumber, selectedMonth);
+
+      const adviceBox = document.getElementById('aiAdvice');
+      const adviceBtn = document.getElementById('generateAdviceBtn');
+      const adviceContainer = document.querySelector('#studentReportPage > .max-w-4xl > .bg-white.rounded-2xl.shadow-lg.p-6.mb-6:last-child');
+      if (adviceContainer){
+        if (isTeacherView){
+          adviceContainer.classList.add('hidden');
+        } else {
+          adviceContainer.classList.remove('hidden');
+          if (adviceBox) adviceBox.innerHTML = '<p class="text-sm text-gray-500">버튼을 눌러 선생님의 격려 메시지를 생성해 보세요.</p>';
+          if (adviceBtn){ adviceBtn.disabled = false; adviceBtn.textContent = '조언 생성하기'; }
+        }
+      }
+    }
+
+    async function fetchAIAdvice(){
+      const studentNumber = currentStudentForReport;
+      if (!studentNumber) return showToast('학생 번호가 선택되지 않았습니다.');
+      if (!API_KEY) return showToast('Gemini API 키를 설정해야 사용할 수 있어요.');
+
+      const btn = document.getElementById('generateAdviceBtn');
+      const el  = document.getElementById('aiAdvice');
+      btn.disabled = true; btn.textContent = '조언 분석 중...';
+      el.innerHTML = '<div class="loader mx-auto"></div><p class="text-center text-purple-700 mt-2">학생의 감정 기록을 분석하는 중입니다...</p>';
+
+      const data = getAllData().filter(d=> d.studentNumber===studentNumber);
+      if (!data.length){
+        el.innerHTML = '<p class="text-red-600 font-semibold">아직 이 학생의 기록이 없어 조언을 생성할 수 없습니다.</p>';
+        btn.disabled=false; btn.textContent='조언 생성하기'; return;
+      }
+      const recent5 = data.slice(-5).map(e=> `[${e.date} ${e.emotion}] ${e.reason}`).join('\n');
+      const total = data.reduce((acc,c)=> (acc[getEmotionType(c.emotion,c)]++, acc), {positive:0,negative:0,neutral:0});
+      const prompt = `당신은 초등학생의 담임 선생님입니다. 아래는 ${studentNumber}번 학생의 최근 감정일기 기록과 전체적인 감정 통계입니다. 이 정보를 바탕으로 학생에게 힘이 되고 격려가 되는 긍정적이고 따뜻한 **짧은 조언** 한 마디를 한국어로 작성해 주세요. 조언은 반드시 3문장 이내로 작성해야 합니다.
+
+<학생 감정 통계>
+- 전체 기록: ${data.length}건
+- 긍정: ${total.positive}회, 부정: ${total.negative}회, 중립: ${total.neutral}회
+
+<최근 5일간의 기록 (최신순)>
+${recent5}
+
+선생님의 조언:`;
+      const advice = await callGeminiAPI(prompt);
+      el.innerHTML = advice ? `<p class="whitespace-pre-wrap">${advice}</p>`
+                            : '<p class="text-red-600 font-semibold">AI 조언 생성에 실패했습니다. 다시 시도해 주세요.</p>';
+      btn.disabled=false; btn.textContent='조언 다시 생성하기';
+    }
+
+    /* =========================
+       학생 로그인
+       ========================= */
+    function handleStudentLogin(e){
+      e.preventDefault();
+      const num = document.getElementById('studentLoginNumber').value;
+      const pw  = document.getElementById('studentLoginPassword').value;
+      const err = document.getElementById('studentLoginError');
+      if (!num || !pw){ err.textContent='번호와 비밀번호를 모두 입력해주세요.'; err.classList.remove('hidden'); return; }
+
+      const SECRET=572, MULT=17;
+      const expected = ((Number(num)*MULT)+SECRET).toString().slice(-4).padStart(4,'0');
+      if (pw === expected){
+        err.classList.add('hidden');
+        document.getElementById('studentLoginForm').reset();
+        renderStudentReport(num, false);
+      } else {
+        err.textContent='번호 또는 비밀번호가 올바르지 않습니다.';
+        err.classList.remove('hidden');
+      }
+    }
+
+    /* =========================
+       초기화
+       ========================= */
+    document.addEventListener('DOMContentLoaded', async ()=>{
+      document.getElementById('currentDate').textContent = getTodayDateString();
+      populateForms();
+      await syncDataFromGAS();
+      showPage('mainPage');
+
+      // 폼 리스너
+      const emotionForm = document.getElementById('emotionForm');
+      if (emotionForm) emotionForm.addEventListener('submit', onEmotionSubmit);
+
+      const noteForm = document.getElementById('noteForm');
+      if (noteForm) noteForm.addEventListener('submit', onSendNote);
+
+      const studentLoginForm = document.getElementById('studentLoginForm');
+      if (studentLoginForm) studentLoginForm.addEventListener('submit', handleStudentLogin);
+
+      // 대시보드 기본 날짜/월
+      const d = document.getElementById('dashboardDate'); if (d) d.value = getTodayDateString();
+      const m = document.getElementById('dashboardMonth');
+      if (m){ const t = new Date(); m.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}`; }
+    });
+  </script>
 </head>
 
 <body class="bg-gradient-to-br from-blue-50 to-purple-50 min-h-screen">
@@ -63,12 +1118,11 @@
 
       <p class="text-center text-sm text-gray-500 mt-20">made by 해솔초 심쌤 💜 오색칠반</p>
 
-      <!-- FABs -->
       <button onclick="showPage('studentLogin')" class="fixed bottom-40 right-6 bg-gradient-to-br from-blue-300 to-indigo-400 text-white w-16 h-16 rounded-full shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-200 z-50 flex items-center justify-center">
         <div class="text-2xl">📊</div>
       </button>
 
-      <button onclick="showPage('noteToTeacherPage')" class="fixed right-6 bg-gradient-to-br from-yellow-200 to-gray-300 text-gray-700 w-16 h-16 rounded-full shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-200 z-50 flex items-center justify-center" style="bottom:92px;">
+      <button onclick="showPage('noteToTeacherPage')" class="fixed right-6 bg-gradient-to-br from-yellow-200 to-gray-300 text-gray-700 w-16 h-16 rounded-full shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-200 z-50 flex items-center justify-center" style="bottom: 92px;">
         <div class="text-2xl">💌</div>
       </button>
 
@@ -101,21 +1155,20 @@
                 <h4 class="text-sm font-semibold text-green-700 mb-3 flex items-center"><span class="mr-2">🌿</span>긍정적인 감정</h4>
                 <div id="positiveEmotions" class="grid grid-cols-5 gap-2"></div>
               </div>
-
               <div class="mb-6">
                 <h4 class="text-sm font-semibold text-red-700 mb-3 flex items-center"><span class="mr-2">🌧</span>부정적인 감정</h4>
                 <div id="negativeEmotions" class="grid grid-cols-5 gap-2"></div>
               </div>
-
               <div class="mb-6">
                 <h4 class="text-sm font-semibold text-gray-700 mb-3 flex items-center"><span class="mr-2">🌗</span>중립·복합 감정</h4>
                 <div id="neutralEmotions" class="grid grid-cols-5 gap-2"></div>
               </div>
 
               <div class="mb-4">
-                <button type="button" onclick="showCustomEmotionInput()" class="w-full bg-blue-50 hover:bg-blue-100 border-2 border-dashed border-blue-300 text-blue-700 font-medium py-3 px-4 rounded-xl transition-all duration-200">✏️ 직접 입력하기</button>
+                <button type="button" onclick="showCustomEmotionInput()" class="w-full bg-blue-50 hover:bg-blue-100 border-2 border-dashed border-blue-300 text-blue-700 font-medium py-3 px-4 rounded-xl transition-all duration-200">
+                  ✏️ 직접 입력하기
+                </button>
               </div>
-
               <div id="customEmotionContainer" class="hidden mb-4">
                 <div class="flex gap-2">
                   <input type="text" id="customEmotionInput" placeholder="감정을 입력하세요 (예: 신남)" class="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500">
@@ -234,7 +1287,7 @@
                 <label class="block text-sm font-medium text-gray-700 mb-2">비밀번호</label>
                 <input type="password" id="teacherPassword" required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
               </div>
-              <button type="submit" class="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 text-white font-semibold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition" onclick="handleTeacherLogin(event)">로그인</button>
+              <button type="submit" onclick="handleTeacherLogin(event)" class="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 text-white font-semibold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition">로그인</button>
             </form>
             <div id="loginError" class="hidden mt-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-xl text-sm text-center">비밀번호가 올바르지 않습니다.</div>
           </div>
@@ -250,7 +1303,7 @@
           <div class="flex items-center gap-4">
             <input type="date" id="dashboardDate" class="px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
             <input type="month" id="dashboardMonth" class="hidden px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <button onclick="refreshDashboardData()" id="refreshDataBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg text-sm">새로고침</button>
+            <button id="refreshDataBtn" onclick="refreshDashboardData()" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg text-sm">새로고침</button>
             <button onclick="clearLocalCache()" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg text-sm">로컬 캐시 삭제</button>
             <button onclick="logoutTeacher()" class="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg">로그아웃</button>
           </div>
@@ -258,28 +1311,18 @@
 
         <div class="border-b border-gray-200 mb-6">
           <nav class="-mb-px flex gap-4" aria-label="Tabs">
-            <button onclick="switchDashboardTab('daily')" id="dailyTab" class="tab-button whitespace-nowrap py-3 px-5 font-semibold text-gray-500 hover:text-indigo-600 border-b-2 border-transparent">일별 리포트</button>
+            <button onclick="switchDashboardTab('daily')"   id="dailyTab"   class="tab-button whitespace-nowrap py-3 px-5 font-semibold text-gray-500 hover:text-indigo-600 border-b-2 border-transparent">일별 리포트</button>
             <button onclick="switchDashboardTab('monthly')" id="monthlyTab" class="tab-button whitespace-nowrap py-3 px-5 font-semibold text-gray-500 hover:text-indigo-600 border-b-2 border-transparent">월별 리포트</button>
-            <button onclick="switchDashboardTab('notes')" id="notesTab" class="tab-button whitespace-nowrap py-3 px-5 font-semibold text-gray-500 hover:text-indigo-600 border-b-2 border-transparent">학생 쪽지함</button>
+            <button onclick="switchDashboardTab('notes')"   id="notesTab"   class="tab-button whitespace-nowrap py-3 px-5 font-semibold text-gray-500 hover:text-indigo-600 border-b-2 border-transparent">학생 쪽지함</button>
           </nav>
         </div>
 
         <div id="dailyReportContent">
           <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-              <h3 class="font-bold text-gray-600">기록한 학생</h3>
-              <p id="todaySubmissionCount" class="text-3xl font-bold text-blue-600"></p>
-            </div>
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-              <h3 class="font-bold text-gray-600">긍정 감정</h3>
-              <p id="todayPositiveCount" class="text-3xl font-bold text-green-600"></p>
-            </div>
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-              <h3 class="font-bold text-gray-600">부정 감정</h3>
-              <p id="todayNegativeCount" class="text-3xl font-bold text-red-600"></p>
-            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">기록한 학생</h3><p id="todaySubmissionCount" class="text-3xl font-bold text-blue-600"></p></div>
+            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">긍정 감정</h3><p id="todayPositiveCount" class="text-3xl font-bold text-green-600"></p></div>
+            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">부정 감정</h3><p id="todayNegativeCount" class="text-3xl font-bold text-red-600"></p></div>
           </div>
-
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div class="bg-white p-6 rounded-2xl shadow-lg">
               <h2 id="dailyDistributionTitle" class="text-xl font-bold mb-4"></h2>
@@ -299,20 +1342,10 @@
 
         <div id="monthlyReportContent" class="hidden">
           <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-              <h3 class="font-bold text-gray-600">월 긍정 감정</h3>
-              <p id="monthlyPositiveCount" class="text-3xl font-bold text-green-600"></p>
-            </div>
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-              <h3 class="font-bold text-gray-600">월 중립 감정</h3>
-              <p id="monthlyNeutralCount" class="text-3xl font-bold text-yellow-600"></p>
-            </div>
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-              <h3 class="font-bold text-gray-600">월 부정 감정</h3>
-              <p id="monthlyNegativeCount" class="text-3xl font-bold text-red-600"></p>
-            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">월 긍정 감정</h3><p id="monthlyPositiveCount" class="text-3xl font-bold text-green-600"></p></div>
+            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">월 중립 감정</h3><p id="monthlyNeutralCount" class="text-3xl font-bold text-yellow-600"></p></div>
+            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">월 부정 감정</h3><p id="monthlyNegativeCount" class="text-3xl font-bold text-red-600"></p></div>
           </div>
-
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div class="bg-white p-6 rounded-2xl shadow-lg">
               <h2 class="text-xl font-bold mb-4">월별 감정 분포</h2>
@@ -378,9 +1411,10 @@
         </div>
 
         <div class="bg-white rounded-2xl shadow-lg p-6 mt-6">
-          <h3 id="candyJarTitle" class="text-xl font-bold text-gray-800 mb-6">🍬 감정 사탕 병 (선택한 달)</h3>
+          <h3 id="candyJarTitle" class="text-xl font-bold text-gray-800 mb-6">🍬 (선택한 달)의 감정 보관함</h3>
           <div class="relative w-full h-[45rem] flex items-center justify-center bg-gray-50 rounded-2xl p-4 overflow-hidden">
-            <div class="absolute inset-0 bg-contain bg-no-repeat bg-center" style="background-image:url('jar.png'); transform:scale(1.09);"></div>
+            <!-- 유리병 이미지는 같은 폴더에 jar.png 파일이 있어야 합니다 -->
+            <div class="absolute inset-0 bg-contain bg-no-repeat bg-center" style="background-image:url('jar.png'); transform: scale(1.09);"></div>
             <div id="candyContainer" class="w-full h-full relative overflow-hidden pt-10"></div>
           </div>
         </div>
@@ -392,11 +1426,11 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 mt-6">
           <div class="bg-white rounded-2xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-gray-800 mb-4">선택한 달의 감정 분포</h3>
+            <h3 id="myEmotionTitle" class="text-xl font-bold text-gray-800 mb-4">선택한 달의 감정분포</h3>
             <div class="chart-container"><canvas id="myEmotionChart"></canvas></div>
           </div>
           <div class="bg-white rounded-2xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-gray-800 mb-4">선택한 달의 감정 변화</h3>
+            <h3 id="myTrendTitle" class="text-xl font-bold text-gray-800 mb-4">선택한 달의 감정변화</h3>
             <div class="chart-container"><canvas id="myTrendChart"></canvas></div>
           </div>
         </div>
@@ -423,7 +1457,7 @@
     <div id="sharedReportPage" class="hidden"></div>
   </div>
 
-  <!-- 글로벌 UI 요소 -->
+  <!-- 모달/툴팁/토스트 -->
   <div id="categoryModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1001]">
     <div class="bg-white p-8 rounded-2xl shadow-xl text-center w-full max-w-sm m-4">
       <h3 class="font-bold text-xl mb-4">이 감정은 어떤 종류인가요?</h3>
@@ -435,842 +1469,8 @@
       </div>
     </div>
   </div>
+
   <div id="tooltip" class="tooltip"></div>
   <div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 bg-yellow-400 text-gray-800 font-semibold py-3 px-6 rounded-lg shadow-xl transform transition-all duration-300 opacity-0"></div>
-
-  <!-- 메인 스크립트: DOMContentLoaded 내부로 전부 이동 + window.*로 공개 -->
-  <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    /*** ====== 상수/상태 ====== ***/
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbzQWtHlJzzC_VNpuLD6VTKeliaRRajE3zPY1g9vpDxS2UmjWnCa48xuNoAXUczIJBPm_g/exec"; // ← 필요시 교체
-    const DB_NAME = 'emotionDiaryDB_v2';
-    const SAMPLE_DATA_FLAG = 'sampleDataGenerated_v5_NoSample';
-    const TEACHER_PASSWORD = 'teacher572';
-    const API_KEY = "AIzaSyDnAn0avxLdzICLBYitlpUMErEqB2jB97s"; // 필요시 제거/교체
-    const PENDING_DELETES = 'emotionDiary_pendingDeletes';
-
-    const STUDENT_NUMBERS = ["2","3","4","5","6","7","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","30"];
-    const EMOTIONS = {
-      positive:{'기쁨':'😊','설렘':'🤗','만족':'🙂','평온함':'😇','감사':'🥰','자신감':'😎','희망':'😌','즐거움':'😄','사랑':'😍','뿌듯함':'🤩'},
-      negative:{'슬픔':'😢','분노':'😠','좌절':'😞','두려움':'😨','불안':'😰','외로움':'😔','실망':'😕','후회':'😣','질투':'😒','짜증':'😤'},
-      neutral:{'혼란':'😵','놀람':'😲','긴장':'😬','무기력':'😑','답답함':'😖','억울함':'😤','부끄러움':'😳','의심':'🤔','피곤함':'😴','서운함':'🙁'}
-    };
-    const DEFAULT_EMOJIS = { positive:'😊', negative:'😟', neutral:'😐' };
-
-    let allDataCache = [];
-    let dataLoaded = false;
-    let chartInstances = {};
-    let currentStudentForReport = null;
-    let pendingCustomEmotion = {};
-    let toastTimeout = null, undoTimeout = null, lastDeletedEntry = null;
-
-    const pages = ['mainPage','studentPage','friendsPage','teacherLogin','teacherDashboard','studentReportPage','studentLogin','noteToTeacherPage'];
-    const tooltip = document.getElementById('tooltip');
-    const toastEl = document.getElementById('toast');
-
-    /*** ====== 유틸 ====== ***/
-    const getTodayDateString = () => {
-      const d = new Date();
-      const y = d.getFullYear();
-      const m = String(d.getMonth()+1).padStart(2,'0');
-      const day = String(d.getDate()).padStart(2,'0');
-      return `${y}-${m}-${day}`;
-    };
-
-    const getAllData = () => {
-      if (dataLoaded) {
-        return allDataCache.map(entry => ({
-          ...entry,
-          id: String(entry.id),
-          synced: entry.synced === true,
-          date: (entry.date || (entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString())),
-          studentNumber: (entry.studentNumber || entry.name),
-          reason: (entry.reason || entry.content),
-          category: (entry.category || entry.tag)
-        }));
-      }
-      const localData = localStorage.getItem(DB_NAME);
-      return localData ? JSON.parse(localData).map(entry => ({
-        ...entry,
-        id: String(entry.id),
-        synced: entry.synced === true,
-        date: (entry.date || (entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString())),
-        studentNumber: (entry.studentNumber || entry.name),
-        reason: (entry.reason || entry.content),
-        category: (entry.category || entry.tag)
-      })) : [];
-    };
-
-    const saveDataLocally = (data) => {
-      const dataToSave = data.map(entry => ({
-        id: String(entry.id),
-        synced: entry.synced === true,
-        date: (entry.date || (entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString())),
-        studentNumber: (entry.studentNumber || entry.name),
-        emotion: entry.emotion,
-        emoji: entry.emoji,
-        reason: (entry.reason || entry.content),
-        category: (entry.category || entry.tag)
-      }));
-      localStorage.setItem(DB_NAME, JSON.stringify(dataToSave));
-      allDataCache = dataToSave;
-      dataLoaded = true;
-    };
-
-    const getEmotionType = (emotion, entry=null) => {
-      if (entry && entry.category) return entry.category;
-      for (const type in EMOTIONS) {
-        if (EMOTIONS[type][emotion]) return type;
-      }
-      return 'neutral';
-    };
-
-    function showToast(message, actionText=null, actionCallback=null, expiryCallback=null){
-      clearTimeout(toastTimeout); clearTimeout(undoTimeout);
-      const undoBtn = actionText && actionCallback ? `<button id="undoButton" class="ml-4 font-bold underline text-blue-800">${actionText}</button>` : '';
-      toastEl.innerHTML = `<span>${message}</span>${undoBtn}`;
-      toastEl.classList.remove('hidden','opacity-0');
-
-      if (actionCallback){
-        document.getElementById('undoButton')?.addEventListener('click', ()=>{
-          clearTimeout(toastTimeout); clearTimeout(undoTimeout); actionCallback();
-        });
-        undoTimeout = setTimeout(()=>{ if (expiryCallback) expiryCallback(); }, 5000);
-      }
-      const hideDelay = actionCallback ? 5500 : 3000;
-      toastTimeout = setTimeout(()=>{
-        toastEl.classList.add('opacity-0');
-        setTimeout(()=>toastEl.classList.add('hidden'), 300);
-      }, hideDelay);
-    }
-
-    async function callGeminiAPI(prompt){
-      if (!API_KEY) { console.log("Gemini API key not set"); return null; }
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
-      try{
-        let response, delay=1000;
-        for (let i=0;i<5;i++){
-          response = await fetch(apiUrl,{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})});
-          if (response.ok) break;
-          if (response.status===429 || response.status>=500){ await new Promise(r=>setTimeout(r,delay)); delay*=2; }
-          else { console.error("API Error:", await response.json()); return null; }
-        }
-        if (!response.ok) return null;
-        const result = await response.json();
-        return result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-      }catch(e){ console.error(e); return null; }
-    }
-
-    /*** ====== 서버 동기화 ====== ***/
-    async function syncDataFromGAS(isForce=false){
-      if (!isForce && dataLoaded) return true;
-      const btn = document.getElementById('refreshDataBtn');
-      if (btn){ btn.disabled = true; btn.textContent = '불러오는 중...'; }
-      try{
-        const res = await fetch(GAS_URL + '?action=readAll', {mode:'cors'});
-        const result = await res.json();
-        if (res.ok && Array.isArray(result)){
-          const normalized = result.map(entry=>({
-            id:String(entry.id),
-            date: entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString(),
-            studentNumber: String(entry.name),
-            emotion: entry.emotion,
-            emoji: entry.emoji,
-            reason: entry.content,
-            category: entry.tag,
-            synced:true
-          }));
-          saveDataLocally(normalized);
-          await flushPendingDeletes();
-          return true;
-        }else{
-          showToast("데이터 로드 오류: 로컬 캐시 사용합니다.");
-          allDataCache = getAllData(); dataLoaded = true;
-          return false;
-        }
-      }catch(e){
-        console.error(e);
-        showToast("서버 통신 오류: 로컬 캐시 사용합니다.");
-        allDataCache = getAllData(); dataLoaded = true;
-        return false;
-      }finally{
-        if (btn){ btn.disabled=false; btn.textContent='새로고침'; }
-      }
-    }
-
-    function enqueuePendingDelete(idStr){
-      try{
-        const q = JSON.parse(localStorage.getItem(PENDING_DELETES) || '[]');
-        if (!q.includes(idStr)) q.push(idStr);
-        localStorage.setItem(PENDING_DELETES, JSON.stringify(q));
-      }catch{}
-    }
-
-    async function flushPendingDeletes(){
-      const q = JSON.parse(localStorage.getItem(PENDING_DELETES) || '[]');
-      if (!q.length) return;
-      const remains = [];
-      for (const idStr of q){
-        try{
-          const res = await fetch(GAS_URL, {method:'POST', mode:'cors', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify({action:'delete', id:idStr, id_numeric:(idStr.match(/\d+/)?.[0] ?? null)})});
-          let ok=false;
-          try{
-            const j = await res.json();
-            ok = res.ok && j.status==='success';
-            if (!ok && j.message && j.message.includes("삭제할 ID를 찾을 수 없습니다")) ok = true;
-          }catch{ /* text/empty */ }
-          if (!ok) remains.push(idStr);
-        }catch{ remains.push(idStr); }
-      }
-      localStorage.setItem(PENDING_DELETES, JSON.stringify(remains));
-    }
-
-    /*** ====== 렌더/차트 ====== ***/
-    function renderChart(canvas, type, data, options){
-      let el = null;
-      if (typeof canvas==='string') el = document.getElementById(canvas) || document.querySelector(canvas);
-      else if (canvas instanceof HTMLCanvasElement) el = canvas;
-      if (!el) return;
-      const key = el.id || (el.dataset.chartId = el.dataset.chartId || `chart-${Math.random()}`);
-      if (chartInstances[key]) chartInstances[key].destroy();
-      const ctx = el.getContext('2d');
-      chartInstances[key] = new Chart(ctx, {type, data, options});
-    }
-
-    /*** ====== 페이지 전환 (전역 공개) ====== ***/
-    function _showPage(pageId){
-      pages.forEach(p=>{
-        const el = document.getElementById(p);
-        if (!el) return;
-        el.classList.add('hidden');
-        el.classList.remove('fade-in');
-      });
-      const target = document.getElementById(pageId);
-      if (target){
-        target.classList.remove('hidden');
-        target.classList.add('fade-in');
-      }
-      window.scrollTo(0,0);
-      if (pageId==='friendsPage'){
-        syncDataFromGAS(true).then(()=> renderFloatingEmotions());
-      }
-      if (pageId==='teacherDashboard') renderTeacherDashboard();
-      if (['studentLogin','studentPage','noteToTeacherPage'].includes(pageId)) populateForms();
-    }
-    window.showPage = _showPage;
-
-    /*** ====== 폼/이모지 ====== ***/
-    function populateForms(){
-      const numSelect = document.getElementById('studentNumber');
-      const loginNumSelect = document.getElementById('studentLoginNumber');
-      const noteNumSelect = document.getElementById('noteStudentNumber');
-
-      const options = ['<option value="">번호 선택</option>'].concat(STUDENT_NUMBERS.map(n=>`<option value="${n}">${n}번</option>`)).join('');
-      if (numSelect) numSelect.innerHTML = options;
-      if (loginNumSelect) loginNumSelect.innerHTML = options;
-      if (noteNumSelect) noteNumSelect.innerHTML = options;
-
-      Object.entries(EMOTIONS).forEach(([category, emotions])=>{
-        const container = document.getElementById(`${category}Emotions`);
-        if (!container) return;
-        container.innerHTML = '';
-        const bg = category==='positive' ? 'bg-green-50 hover:bg-green-100' : category==='negative' ? 'bg-red-50 hover:bg-red-100' : 'bg-gray-50 hover:bg-gray-100';
-        for (const [emotion, emoji] of Object.entries(emotions)){
-          container.innerHTML += `<div class="emotion-card ${bg} p-3 rounded-lg cursor-pointer text-center text-xs" onclick="selectEmotion('${emotion}','${emoji}','${category}',this)"><div class="text-2xl mb-1">${emoji}</div><div class="font-medium">${emotion}</div></div>`;
-        }
-      });
-    }
-
-    function _selectEmotion(emotion, emoji, category, element){
-      document.querySelectorAll('.emotion-card').forEach(el=>el.classList.remove('ring-2','ring-blue-500'));
-      if (element) element.classList.add('ring-2','ring-blue-500');
-      document.getElementById('selectedEmotion').value = emotion;
-      document.getElementById('selectedEmoji').value = emoji;
-      document.getElementById('selectedCategory').value = category;
-    }
-    window.selectEmotion = _selectEmotion;
-    window.showCustomEmotionInput = ()=> document.getElementById('customEmotionContainer').classList.remove('hidden');
-    window.hideCustomEmotionInput = ()=> document.getElementById('customEmotionContainer').classList.add('hidden');
-
-    async function _setCustomCategory(category){
-      const text = pendingCustomEmotion.text;
-      let finalEmoji = pendingCustomEmotion.emoji;
-      if (!finalEmoji){
-        const emojiPrompt = `다음 한국어 감정에 가장 어울리는 대표 얼굴 이모지 하나만 응답: "${text}"`;
-        const r = await callGeminiAPI(emojiPrompt);
-        if (r && /\p{Emoji}/u.test(r)) finalEmoji = r.slice(0,2);
-        else finalEmoji = DEFAULT_EMOJIS[category];
-      }
-      _selectEmotion(text, finalEmoji, category, null);
-      showToast(`'${text} ${finalEmoji}' 감정이 선택되었습니다.`);
-      document.getElementById('categoryModal').classList.add('hidden');
-      pendingCustomEmotion = {};
-    }
-    window.setCustomCategory = _setCustomCategory;
-
-    async function handleCustomEmotion(){
-      const inputEl = document.getElementById('customEmotionInput');
-      const text = inputEl.value.trim();
-      if (!text) return showToast('감정을 입력해주세요.');
-      const confirmBtn = inputEl.nextElementSibling;
-      confirmBtn.disabled = true; confirmBtn.textContent = '...';
-
-      pendingCustomEmotion = { text, emoji:null };
-      const prompt = `다음 한국어 감정을 분석해 이모지/분류를 JSON으로. {"emoji":"...","category":"positive|negative|neutral"}\n감정:"${text}"`;
-      const resp = await callGeminiAPI(prompt);
-      confirmBtn.disabled=false; confirmBtn.textContent='확인';
-
-      if (resp){
-        try{
-          const cleaned = resp.replace(/```json\n?/,'').replace(/```$/,'');
-          const j = JSON.parse(cleaned);
-          if (j.emoji && j.category && /\p{Emoji}/u.test(j.emoji)){
-            pendingCustomEmotion.emoji = j.emoji.slice(0,2);
-            return _setCustomCategory(j.category);
-          }
-        }catch(e){ console.error(e, resp); }
-      }
-      document.getElementById('fallbackEmotionText').textContent = `"${text}"`;
-      document.getElementById('categoryModal').classList.remove('hidden');
-    }
-    window.handleCustomEmotion = handleCustomEmotion;
-
-    /*** ====== 제출: 감정일기 ====== ***/
-    const emotionForm = document.getElementById('emotionForm');
-    emotionForm?.addEventListener('submit', async (e)=>{
-      e.preventDefault();
-      const today = getTodayDateString();
-      const studentNumber = document.getElementById('studentNumber').value;
-      if (!studentNumber) return showToast('번호를 선택해주세요!');
-      if (!document.getElementById('selectedEmotion').value) return showToast('감정을 선택해주세요!');
-      if (!document.getElementById('emotionReason').value.trim()) return showToast('감정의 이유를 입력해주세요!');
-
-      if (getAllData().find(d=> d.date===today && d.studentNumber===studentNumber)){
-        return showToast('이미 오늘 감정일기를 작성했어요!');
-      }
-
-      const newEntryForGAS = {
-        id: Date.now(),
-        timestamp: new Date().toISOString(),
-        name: studentNumber,
-        emotion: document.getElementById('selectedEmotion').value,
-        tag: document.getElementById('selectedCategory').value || 'neutral',
-        content: document.getElementById('emotionReason').value,
-        emoji: document.getElementById('selectedEmoji').value
-      };
-
-      const newEntryInternal = {
-        id: newEntryForGAS.id,
-        date: today,
-        studentNumber,
-        emotion: newEntryForGAS.emotion,
-        emoji: newEntryForGAS.emoji,
-        reason: newEntryForGAS.content,
-        category: newEntryForGAS.tag,
-        synced:false
-      };
-
-      const submitBtn = e.target.querySelector('button[type="submit"]');
-      submitBtn.disabled=true; submitBtn.textContent='저장 중...';
-      let serverSuccess=false;
-
-      try{
-        const res = await fetch(GAS_URL, {
-          method:'POST', mode:'cors', headers:{'Content-Type':'text/plain;charset=utf-8'},
-          body: JSON.stringify({ action:'create', data:newEntryForGAS })
-        });
-        const txt = await res.text();
-        let result={};
-        try{ if (!txt) throw new Error('EMPTY'); result = JSON.parse(txt); }catch{ result={status:'error'}; }
-
-        if (res.ok && result.status==='success'){
-          const serverId = String(result.id ?? newEntryForGAS.id);
-          const entryWithServerId = { ...newEntryInternal, id:serverId, synced:true };
-          allDataCache.push(entryWithServerId);
-          serverSuccess = true;
-          const msgs = ["오늘도 힘내세요! 멋진 하루가 될 거예요. 화이팅!","아침부터 기록하는 당신, 정말 멋져요!","좋은 시작이에요! 오늘 하루도 긍정 에너지 가득하길!","감사합니다! 당신의 하루를 응원할게요!","기록 완료! 오늘도 반짝이길!"];
-          showToast(msgs[Math.floor(Math.random()*msgs.length)]);
-        }else{
-          allDataCache.push(newEntryInternal);
-          showToast(`저장 실패: 서버 오류. 나중에 자동 동기화됩니다.`);
-        }
-      }catch(err){
-        console.error(err);
-        allDataCache.push(newEntryInternal);
-        showToast("서버 통신 오류! 기록을 로컬에 임시 저장했습니다.");
-      }finally{
-        submitBtn.disabled=false; submitBtn.textContent='💾 감정일기 저장하기';
-        saveDataLocally(allDataCache);
-        e.target.reset();
-        document.querySelectorAll('.emotion-card').forEach(el=>el.classList.remove('ring-2','ring-blue-500'));
-        if (serverSuccess) _showPage('mainPage');
-      }
-    });
-
-    /*** ====== 쪽지 전송 ====== ***/
-    const noteForm = document.getElementById('noteForm');
-    noteForm?.addEventListener('submit', async (e)=>{
-      e.preventDefault();
-      const studentNumber = document.getElementById('noteStudentNumber').value;
-      const noteContent = document.getElementById('noteContent').value;
-      if (!studentNumber || !noteContent.trim()) return showToast('번호와 쪽지 내용을 입력해주세요.');
-      const noteEntry = { timestamp:new Date().toISOString(), name:studentNumber, content:noteContent.trim() };
-      const btn = e.target.querySelector('button[type="submit"]'); btn.disabled=true; btn.textContent='전송 중...';
-      try{
-        const res = await fetch(GAS_URL, {method:'POST', mode:'cors', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify({action:'sendNote', data:noteEntry})});
-        const txt = await res.text();
-        let result={}; try{ if (!txt) throw 0; result=JSON.parse(txt);}catch{ result={status:'error'};}
-        if (res.ok && result.status==='success'){
-          showToast("쪽지가 선생님께 전달되었습니다!"); e.target.reset(); _showPage('mainPage');
-        }else showToast("쪽지 전송 실패: GAS 설정을 확인해주세요.");
-      }catch(e){ console.error(e); showToast("서버 통신 오류로 쪽지 전송 실패"); }
-      finally{ btn.disabled=false; btn.textContent='💌 쪽지 전송하기'; }
-    });
-
-    /*** ====== 교사/학생 로그인 ====== ***/
-    function _handleTeacherLogin(ev){
-      ev?.preventDefault();
-      const pw = document.getElementById('teacherPassword');
-      if (pw.value === TEACHER_PASSWORD){ document.getElementById('loginError').classList.add('hidden'); pw.value=''; _showPage('teacherDashboard'); }
-      else { document.getElementById('loginError').classList.remove('hidden'); }
-      return false;
-    }
-    window.handleTeacherLogin = _handleTeacherLogin;
-
-    function _logoutTeacher(){ _showPage('mainPage'); }
-    window.logoutTeacher = _logoutTeacher;
-
-    async function _clearLocalCache(){
-      localStorage.removeItem(DB_NAME);
-      localStorage.removeItem(PENDING_DELETES);
-      allDataCache=[]; dataLoaded=false;
-      showToast("브라우저 캐시 삭제 후 서버에서 다시 불러옵니다...");
-      await syncDataFromGAS(true);
-      if (document.getElementById('teacherDashboard').classList.contains('hidden')) _showPage('mainPage');
-      else renderTeacherDashboard();
-    }
-    window.clearLocalCache = _clearLocalCache;
-
-    /*** ====== 친구들 감정 ====== ***/
-    function renderFloatingEmotions(){
-      const container = document.getElementById('floatingEmotions');
-      container.innerHTML = `<div class="text-center py-10"><div class="loader mx-auto"></div><p class="text-gray-600 mt-4">친구들의 감정 기록 불러오는 중...</p></div>`;
-      const todays = getAllData().filter(d=> d.date===getTodayDateString());
-      if (!todays.length){ container.innerHTML = `<div class="text-center text-gray-500 py-20">아직 일기를 쓴 친구가 없어요.</div>`; return; }
-      container.innerHTML='';
-      const positions=[]; const size=48; const W=container.offsetWidth; const H=container.offsetHeight;
-
-      todays.forEach(entry=>{
-        const el = document.createElement('div');
-        el.className='floating-emotion'; el.textContent = entry.emoji;
-        let left, top, overlaps, attempts=0;
-        do{
-          overlaps=false;
-          left = Math.random()*(W-size); top = Math.random()*(H-size);
-          for (const pos of positions){
-            if (left < pos.right && left+size > pos.left && top < pos.bottom && top+size > pos.top){ overlaps=true; break; }
-          }
-          attempts++;
-        }while(overlaps && attempts<100);
-        positions.push({left, top, right:left+size, bottom:top+size});
-        el.style.left=`${left}px`; el.style.top=`${top}px`; el.style.animationDelay=`${Math.random()*5}s`;
-
-        const showDetail = (e)=>{
-          const r = e.target.getBoundingClientRect();
-          tooltip.innerHTML = `<strong>${entry.studentNumber}번 (${entry.emotion})</strong><br><span class="text-sm">${entry.reason}</span>`;
-          tooltip.classList.add('show');
-          let tw = tooltip.offsetWidth, th=tooltip.offsetHeight;
-          let L = r.left + r.width/2 - tw/2;
-          let T = r.top - th - 10;
-          if (L<10) L=10; if (L+tw>window.innerWidth-10) L=window.innerWidth-tw-10;
-          if (T<10) T=10;
-          tooltip.style.left=`${L}px`; tooltip.style.top=`${T}px`;
-        };
-        const hideDetail = ()=> tooltip.classList.remove('show');
-        el.onmouseenter = showDetail; el.onmouseleave = hideDetail;
-
-        let touchTimer=null;
-        el.addEventListener('touchstart',(e)=>{
-          e.preventDefault(); showDetail({target:el});
-          touchTimer=setTimeout(hideDetail,3000);
-        });
-        el.addEventListener('touchend',()=>{ clearTimeout(touchTimer); hideDetail(); });
-        el.addEventListener('touchcancel',()=>{ clearTimeout(touchTimer); hideDetail(); });
-
-        container.appendChild(el);
-      });
-    }
-
-    /*** ====== 교사 대시보드 ====== ***/
-    function switchDashboardTab(tab){
-      document.getElementById('dailyTab').classList.toggle('active', tab==='daily');
-      document.getElementById('monthlyTab').classList.toggle('active', tab==='monthly');
-      document.getElementById('notesTab').classList.toggle('active', tab==='notes');
-
-      document.getElementById('dailyReportContent').classList.toggle('hidden', tab!=='daily');
-      document.getElementById('monthlyReportContent').classList.toggle('hidden', tab!=='monthly');
-      document.getElementById('notesContent').classList.toggle('hidden', tab!=='notes');
-
-      document.getElementById('dashboardDate').classList.toggle('hidden', tab!=='daily');
-      document.getElementById('dashboardMonth').classList.toggle('hidden', tab!=='monthly');
-
-      if (tab==='daily'){ renderDailyReport(); renderStudentListForDashboard(); }
-      if (tab==='monthly') renderMonthlyReport();
-      if (tab==='notes') renderTeacherNotes();
-    }
-    window.switchDashboardTab = switchDashboardTab;
-
-    function handleListClick(e){
-      if (e.target.classList.contains('delete-btn')){
-        const rawId = e.target.dataset.id;
-        deleteEntry(rawId);
-      }
-    }
-
-    function renderDailyReport(){
-      const selectedDate = document.getElementById('dashboardDate').value;
-      document.getElementById('dailyDistributionTitle').textContent = `${selectedDate} 감정 분포`;
-      document.getElementById('dailyEntriesTitle').textContent = `${selectedDate}의 기록`;
-
-      const daily = getAllData().filter(d=> d.date===selectedDate);
-      const counts = {positive:0, negative:0, neutral:0};
-      daily.forEach(entry=> counts[getEmotionType(entry.emotion, entry)]++);
-      document.getElementById('todaySubmissionCount').textContent = `${daily.length} / ${STUDENT_NUMBERS.length}`;
-      document.getElementById('todayPositiveCount').textContent = counts.positive;
-      document.getElementById('todayNegativeCount').textContent = counts.negative;
-
-      renderChart('dailyDistributionChart','pie',{labels:['긍정','부정','중립'], datasets:[{data:Object.values(counts), backgroundColor:['#4CAF50','#F44336','#FFC107']}]},{responsive:true, maintainAspectRatio:false});
-
-      const list = document.getElementById('dailyEntriesList');
-      list.innerHTML = daily.length ? '' : '<p class="text-gray-500">선택한 날짜에 기록이 없습니다.</p>';
-      daily.forEach(entry=>{
-        list.innerHTML += `
-          <div class="border-b pb-3 flex items-center">
-            <div class="flex-grow">
-              <p class="font-bold">${entry.emoji} ${entry.studentNumber}번 - <span class="font-medium">${entry.emotion}</span></p>
-              <p class="text-sm text-gray-600 pl-7">${entry.reason}</p>
-            </div>
-            <button data-id="${String(entry.id)}" class="delete-btn bg-red-100 text-red-600 hover:bg-red-200 text-xs font-bold py-1 px-2 rounded-md">삭제</button>
-          </div>`;
-      });
-      list.removeEventListener('click', handleListClick);
-      list.addEventListener('click', handleListClick);
-
-      renderStudentListForDashboard();
-    }
-
-    function renderMonthlyReport(){
-      const monthString = document.getElementById('dashboardMonth').value;
-      const [year, month] = monthString.split('-').map(Number);
-      const monthData = getAllData().filter(d=> d.date.startsWith(monthString));
-      const daysInMonth = new Date(year, month, 0).getDate();
-
-      const counts = {positive:0, negative:0, neutral:0};
-      monthData.forEach(e=> counts[getEmotionType(e.emotion, e)]++);
-      document.getElementById('monthlyPositiveCount').textContent = counts.positive;
-      document.getElementById('monthlyNeutralCount').textContent = counts.neutral;
-      document.getElementById('monthlyNegativeCount').textContent = counts.negative;
-
-      renderChart('monthlyDistributionChart','doughnut',{labels:['긍정','부정','중립'], datasets:[{data:Object.values(counts), backgroundColor:['#4CAF50','#F44336','#FFC107']}]},{responsive:true, maintainAspectRatio:false});
-
-      const dailyTrends = Array(daysInMonth).fill(null);
-      // (간단화) 누적 비율용 더미 스택 차트 대신 일자별 null 처리
-      renderChart('monthlyTrendChart','bar',{
-        labels: Array.from({length:daysInMonth},(_,i)=>i+1),
-        datasets:[
-          {label:'긍정', data: dailyTrends.map(()=>null), backgroundColor:'#4CAF50'},
-          {label:'중립', data: dailyTrends.map(()=>null), backgroundColor:'#FFC107'},
-          {label:'부정', data: dailyTrends.map(()=>null), backgroundColor:'#F44336'}
-        ]
-      }, {responsive:true, maintainAspectRatio:false, scales:{x:{stacked:true, title:{display:true, text:`${month}월`}}, y:{stacked:true, max:100, ticks:{callback:v=>v+'%'}}}});
-    }
-
-    function renderStudentListForDashboard(){
-      const container = document.getElementById('studentReportLinks');
-      if (!container) return;
-      container.innerHTML = '';
-      const selectedDate = document.getElementById('dashboardDate').value;
-      const submitted = getAllData().filter(d=> d.date===selectedDate).map(d=> d.studentNumber);
-      STUDENT_NUMBERS.slice().sort((a,b)=>parseInt(a)-parseInt(b)).forEach(num=>{
-        const done = submitted.includes(num);
-        const cls = done ? 'bg-blue-200 hover:bg-blue-300 text-blue-800' : 'bg-gray-100 hover:bg-gray-200 text-gray-700';
-        container.innerHTML += `<button onclick="renderStudentReport('${num}', true)" class="${cls} font-medium py-2 px-3 rounded-lg transition">${num}번</button>`;
-      });
-    }
-
-    async function refreshDashboardData(){
-      const ok = await syncDataFromGAS(true);
-      if (ok){ renderTeacherDashboard(); showToast("대시보드가 최신 기록으로 새로고침되었습니다."); }
-    }
-    window.refreshDashboardData = refreshDashboardData;
-
-    async function renderTeacherNotes(){
-      const list = document.getElementById('notesList');
-      const err = document.getElementById('notesLoadingError');
-      list.innerHTML = '<div class="text-center py-10"><div class="loader mx-auto"></div><p class="text-gray-600 mt-4">쪽지 불러오는 중...</p></div>';
-      err.classList.add('hidden');
-      try{
-        const res = await fetch(GAS_URL + '?action=readNotes', {mode:'cors'});
-        const result = await res.json();
-        if (res.ok && Array.isArray(result)){
-          list.innerHTML='';
-          if (!result.length){ list.innerHTML='<p class="text-gray-500 text-center py-10">도착한 쪽지가 없습니다.</p>'; return; }
-          result.slice().reverse().forEach(note=>{
-            const timestamp = new Date(note.timestamp).toLocaleString('ko-KR',{year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
-            list.innerHTML += `
-              <div class="bg-gray-50 p-4 rounded-xl shadow-md border border-gray-200">
-                <div class="flex justify-between items-start mb-2 border-b pb-2">
-                  <span class="font-bold text-lg text-gray-800">💌 ${note.name}번 학생</span>
-                  <span class="text-xs text-gray-500">${timestamp}</span>
-                </div>
-                <p class="text-gray-700 whitespace-pre-wrap">${note.content}</p>
-              </div>`;
-          });
-        }else{
-          list.innerHTML=''; err.classList.remove('hidden');
-        }
-      }catch(e){
-        console.error(e);
-        list.innerHTML=''; err.classList.remove('hidden'); err.textContent="서버 통신 오류: 쪽지를 불러올 수 없습니다.";
-      }
-    }
-
-    /*** ====== 삭제(되돌리기) ====== ***/
-    async function deleteEntry(id){
-      const idStr = String(id);
-      if (!idStr) return showToast("삭제 오류: ID가 비어 있습니다.");
-      const entryIndex = allDataCache.findIndex(e=> String(e.id)===idStr);
-      if (entryIndex===-1) return showToast('삭제 오류: 기록을 찾을 수 없습니다.');
-
-      lastDeletedEntry = allDataCache.splice(entryIndex,1)[0];
-      saveDataLocally(allDataCache);
-      refreshAfterDelete();
-
-      showToast('기록이 삭제되었습니다.','되돌리기', ()=> undoDelete(), ()=> confirmDelete());
-    }
-    window.deleteEntry = deleteEntry;
-
-    function undoDelete(){
-      if (!lastDeletedEntry) return;
-      allDataCache.push(lastDeletedEntry);
-      allDataCache.sort((a,b)=> a.date.localeCompare(b.date));
-      saveDataLocally(allDataCache);
-      refreshAfterDelete();
-      showToast('삭제가 취소되었습니다.');
-      lastDeletedEntry=null; clearTimeout(undoTimeout);
-    }
-
-    async function confirmDelete(){
-      if (!lastDeletedEntry) return;
-      const entry = lastDeletedEntry; lastDeletedEntry=null;
-      if (entry.synced!==true) return; // 로컬 전용은 이미 끝
-      try{
-        const res = await fetch(GAS_URL, {method:'POST', mode:'cors', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify({action:'delete', id:entry.id, id_numeric:(String(entry.id).match(/\d+/)?.[0] ?? null)})});
-        let ok=false; try{ const j=await res.json(); ok = res.ok && j.status==='success'; }catch{}
-        if (!ok) enqueuePendingDelete(String(entry.id));
-      }catch{ enqueuePendingDelete(String(entry.id)); }
-    }
-
-    function refreshAfterDelete(){
-      if (!document.getElementById('teacherDashboard').classList.contains('hidden') && document.getElementById('dailyTab').classList.contains('active')){
-        renderDailyReport(); renderStudentListForDashboard();
-      }else if (!document.getElementById('studentReportPage').classList.contains('hidden') && currentStudentForReport){
-        renderStudentReport(currentStudentForReport);
-      }
-    }
-
-    /*** ====== 학생 리포트 ====== ***/
-    async function renderStudentReportContent(containerSelector, studentNumber, monthString){
-      const container = document.querySelector(containerSelector);
-      const studentAll = getAllData().filter(d=> d.studentNumber===studentNumber);
-      const studentMonth = studentAll.filter(d=> d.date.startsWith(monthString));
-
-      const [year, month] = monthString.split('-').map(Number);
-      const monthTitle = `${year}년 ${month}월`;
-      container.querySelector('#candyJarTitle').textContent = `🍬 감정 사탕 병 (${monthTitle})`;
-      container.querySelector('#monthlyRecordsTitle').textContent = `${monthTitle}의 전체 기록`;
-
-      const totalMonth = studentMonth.length;
-      const counts = {positive:0, negative:0, neutral:0};
-      studentMonth.forEach(e=> counts[getEmotionType(e.emotion, e)]++);
-      container.querySelector('#myTotalRecords').textContent = totalMonth;
-      container.querySelector('#myPositiveCount').textContent = counts.positive;
-      container.querySelector('#myNeutralCount').textContent = counts.neutral;
-      container.querySelector('#myNegativeCount').textContent = counts.negative;
-
-      renderChart(container.querySelector('#myEmotionChart'), 'doughnut', {labels:['긍정','부정','중립'], datasets:[{data:Object.values(counts), backgroundColor:['#4CAF50','#F44336','#FFC107']}]}, {responsive:true, maintainAspectRatio:false});
-
-      const daysInMonth = new Date(year, month, 0).getDate();
-      const dailyTrends = Array(daysInMonth).fill(null).map((_,i)=>{
-        const dayStr = `${monthString}-${String(i+1).padStart(2,'0')}`;
-        const dayData = studentMonth.find(d=> d.date===dayStr);
-        if (!dayData) return null;
-        const c = getEmotionType(dayData.emotion, dayData);
-        if (c==='positive') return 1; if (c==='negative') return -1; return 0;
-      });
-      renderChart(container.querySelector('#myTrendChart'),'line',{labels:Array.from({length:daysInMonth},(_,i)=>i+1), datasets:[{label:'감정 변화', data:dailyTrends, borderColor:'#667eea', backgroundColor:'#667eea20', fill:true, tension:0.1, spanGaps:true}]},{responsive:true, maintainAspectRatio:false, scales:{x:{title:{display:true, text:`${month}월`}}, y:{ticks:{callback:v=> v===1?'긍정':(v===-1?'부정':(v===0?'중립':null))}, min:-1.5, max:1.5}}});
-
-      const topBox = container.querySelector('#myTopEmotions');
-      topBox.innerHTML='';
-      const emotionCounts = studentMonth.reduce((acc,c)=> (acc[c.emotion]=(acc[c.emotion]||0)+1, acc), {});
-      const sorted = Object.entries(emotionCounts).sort((a,b)=> b[1]-a[1]).slice(0,5);
-      if (sorted.length){
-        sorted.forEach(([emotion,count],i)=>{
-          const emoji = studentAll.find(d=> d.emotion===emotion)?.emoji || DEFAULT_EMOJIS[getEmotionType(emotion)];
-          topBox.innerHTML += `<div class="flex items-center justify-between text-gray-700 border-b pb-2"><span>${i+1}. ${emoji} ${emotion}</span><span class="font-bold">${count}회</span></div>`;
-        });
-      }else topBox.innerHTML='<p class="text-gray-500">기록이 없습니다.</p>';
-
-      const candyContainer = container.querySelector('#candyContainer');
-      candyContainer.innerHTML='';
-      if (studentMonth.length){
-        const jarW = 400*1.09, jarH = 500*1.09;
-        const candySize = 126;
-        const offsetX = (candyContainer.offsetWidth - jarW)/2;
-        const offsetY = (candyContainer.offsetHeight - jarH)/2;
-        const stackW = candySize*0.7;
-        const maxPerRow = Math.floor((jarW*0.8)/stackW);
-        const stackH = candySize*0.3;
-
-        studentMonth.forEach((entry, idx)=>{
-          const candy = document.createElement('div');
-          candy.className = 'w-28 h-28 rounded-full flex items-center justify-center text-7xl absolute falling-candy';
-          candy.textContent = entry.emoji;
-          candy.title = `${entry.date}: ${entry.emotion}`;
-          const row = Math.floor(idx / maxPerRow);
-          const col = idx % maxPerRow;
-          let bottom = offsetY + (row*stackH) + (Math.random()*5-2.5);
-          let left = offsetX + (jarW*0.1) + (col*stackW) + (row%2===1 ? stackW/2 : 0) + (Math.random()*10-5);
-          if (left + candySize > offsetX + jarW*0.9) left -= stackW/2;
-          candy.style.left = `${left}px`; candy.style.bottom=`${bottom}px`;
-          candy.style.animationDelay = `${idx*0.15}s`;
-          candy.style.setProperty('--final-rotate', `${Math.random()*360}deg`);
-          candy.onmouseenter = (e)=>{
-            const r = e.target.getBoundingClientRect();
-            tooltip.innerHTML = `<strong>${entry.date}</strong><br><span>${entry.emotion} ${entry.emoji}</span><br><span class="text-sm">${entry.reason}</span>`;
-            tooltip.classList.add('show');
-            tooltip.style.left = `${r.left + r.width/2 - tooltip.offsetWidth/2}px`;
-            tooltip.style.top = `${r.top - tooltip.offsetHeight - 5}px`;
-          };
-          candy.onmouseleave = ()=> tooltip.classList.remove('show');
-          candyContainer.appendChild(candy);
-        });
-      }else{
-        candyContainer.innerHTML = '<p class="text-gray-500">선택한 달에 기록된 감정 사탕이 없습니다.</p>';
-      }
-
-      const records = container.querySelector('#myRecentRecords');
-      records.innerHTML='';
-      if (studentMonth.length){
-        studentMonth.slice().sort((a,b)=> b.date.localeCompare(a.date)).forEach(entry=>{
-          records.innerHTML += `
-            <div class="bg-gray-50 p-4 rounded-xl shadow-sm border-l-4 ${entry.category==='positive'?'border-green-500': entry.category==='negative'?'border-red-500':'border-gray-500'}">
-              <p class="font-semibold text-gray-800">${entry.date} · ${entry.emotion} ${entry.emoji}</p>
-              <p class="text-sm text-gray-600 mt-1 whitespace-pre-wrap">${entry.reason}</p>
-            </div>`;
-        });
-      }else records.innerHTML='<p class="text-gray-500">선택한 달의 기록이 없습니다.</p>';
-    }
-
-    function renderStudentReport(studentNumber, isTeacherView=true){
-      currentStudentForReport = studentNumber;
-      _showPage('studentReportPage');
-      document.getElementById('studentReportNumber').textContent = `${studentNumber}번 학생의 리포트`;
-      const monthPicker = document.getElementById('studentReportMonth');
-      if (!monthPicker.dataset.listenerAttached){
-        monthPicker.addEventListener('change', ()=> renderStudentReport(studentNumber, isTeacherView));
-        monthPicker.dataset.listenerAttached='true';
-      }
-      const today = new Date();
-      const defMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
-      monthPicker.value = monthPicker.value || defMonth;
-
-      document.getElementById('dashboardButton').classList.toggle('hidden', !isTeacherView);
-      document.getElementById('mainPageButton').classList.toggle('hidden', isTeacherView);
-
-      renderStudentReportContent('#studentReportPage', studentNumber, monthPicker.value);
-
-      const adviceBox = document.querySelector('#studentReportPage > .max-w-4xl > .bg-white.rounded-2xl.shadow-lg.p-6.mb-6:last-child');
-      if (adviceBox){
-        if (isTeacherView) adviceBox.classList.add('hidden');
-        else{
-          adviceBox.classList.remove('hidden');
-          const btn = document.getElementById('generateAdviceBtn');
-          const aiAdviceEl = document.getElementById('aiAdvice');
-          if (aiAdviceEl) aiAdviceEl.innerHTML = '<p class="text-sm text-gray-500">버튼을 눌러 선생님의 격려 메시지를 생성해 보세요.</p>';
-          if (btn){ btn.disabled=false; btn.textContent='조언 생성하기'; }
-        }
-      }
-    }
-    window.renderStudentReport = renderStudentReport;
-
-    async function fetchAIAdvice(){
-      const studentNumber = currentStudentForReport;
-      if (!studentNumber) return showToast('학생 번호가 선택되지 않았습니다.');
-      if (!API_KEY) return showToast('Gemini API 키가 필요합니다.');
-
-      const btn = document.getElementById('generateAdviceBtn');
-      const aiAdviceEl = document.getElementById('aiAdvice');
-      btn.disabled=true; btn.textContent='조언 분석 중...';
-      aiAdviceEl.innerHTML = '<div class="loader mx-auto"></div><p class="text-center text-purple-700 mt-2">학생의 감정 기록을 분석하는 중...</p>';
-
-      const studentData = getAllData().filter(d=> d.studentNumber===studentNumber);
-      if (!studentData.length){
-        aiAdviceEl.innerHTML = '<p class="text-red-600 font-semibold">아직 이 학생의 기록이 없어 조언을 생성할 수 없습니다.</p>';
-        btn.disabled=false; btn.textContent='조언 생성하기'; return;
-      }
-      const recent = studentData.slice(-5).map(e=>`[${e.date} ${e.emotion}] ${e.reason}`).join('\n');
-      const totals = studentData.reduce((acc,c)=> (acc[getEmotionType(c.emotion,c)]++, acc), {positive:0,negative:0,neutral:0});
-      const prompt = `당신은 초등 담임입니다. 아래는 ${studentNumber}번 학생의 감정 통계와 최근 5개 기록입니다. 학생에게 힘이 되는 짧은 한국어 조언(최대 3문장)만 작성하세요.
-<통계> 전체:${studentData.length} 긍정:${totals.positive} 부정:${totals.negative} 중립:${totals.neutral}
-<최근>
-${recent}
-조언:`;
-      const advice = await callGeminiAPI(prompt);
-      aiAdviceEl.innerHTML = advice ? `<p class="whitespace-pre-wrap">${advice}</p>` : '<p class="text-red-600 font-semibold">AI 조언 생성 실패. 다시 시도해 주세요.</p>';
-      btn.disabled=false; btn.textContent='조언 다시 생성하기';
-    }
-    window.fetchAIAdvice = fetchAIAdvice;
-
-    /*** ====== 대시보드 프레임 ====== ***/
-    function renderTeacherDashboard(){
-      const datePicker = document.getElementById('dashboardDate');
-      const monthPicker = document.getElementById('dashboardMonth');
-      if (!datePicker.value) datePicker.value = getTodayDateString();
-      const t = new Date();
-      if (!monthPicker.value) monthPicker.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}`;
-      if (!datePicker.dataset.listenerAttached){ datePicker.addEventListener('change', ()=>{renderDailyReport(); renderStudentListForDashboard();}); datePicker.dataset.listenerAttached='true'; }
-      if (!monthPicker.dataset.listenerAttached){ monthPicker.addEventListener('change', renderMonthlyReport); monthPicker.dataset.listenerAttached='true'; }
-      const active = document.querySelector('.tab-button.active')?.id || 'dailyTab';
-      switchDashboardTab(active==='monthlyTab'?'monthly' : active==='notesTab'?'notes':'daily');
-      if (active!=='notesTab') renderStudentListForDashboard();
-    }
-
-    /*** ====== 학생 로그인 폼 ====== ***/
-    const studentLoginForm = document.getElementById('studentLoginForm');
-    studentLoginForm?.addEventListener('submit', (e)=>{
-      e.preventDefault();
-      const num = document.getElementById('studentLoginNumber').value;
-      const pw = document.getElementById('studentLoginPassword').value;
-      const err = document.getElementById('studentLoginError');
-      if (!num || !pw){ err.textContent='번호와 비밀번호를 모두 입력해주세요.'; err.classList.remove('hidden'); return; }
-      const SECRET = 572, MULT=17;
-      const expected = ((Number(num)*MULT)+SECRET).toString().slice(-4).padStart(4,'0');
-      if (pw===expected){ err.classList.add('hidden'); studentLoginForm.reset(); renderStudentReport(num,false); }
-      else { err.textContent='번호 또는 비밀번호가 올바르지 않습니다.'; err.classList.remove('hidden'); }
-    });
-
-    /*** ====== 초기화 ====== ***/
-    document.getElementById('currentDate').textContent = getTodayDateString();
-    populateForms();
-    syncDataFromGAS().then(()=>{ /* 초기 동기화 완료 */ });
-    showPage('mainPage');
-    const dashboardDate = document.getElementById('dashboardDate');
-    if (dashboardDate) dashboardDate.value = getTodayDateString();
-    const today = new Date();
-    const dashboardMonth = document.getElementById('dashboardMonth');
-    if (dashboardMonth) dashboardMonth.value = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
-  });
-  </script>
 </body>
 </html>
