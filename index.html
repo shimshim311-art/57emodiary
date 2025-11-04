@@ -109,6 +109,26 @@
     /* =========================
        유틸
        ========================= */
+    // YYYY-MM-DD (항상 KST 기준)
+  function getTodayDateString(){
+  const fmt = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  });
+  return fmt.format(new Date()); // 예: 2025-11-04
+  }
+
+  // ISO를 KST 날짜로 변환
+  function toKSTYmdFromISO(iso){
+  if (!iso) return getTodayDateString();
+  const d = new Date(iso);
+  const fmt = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  });
+  return fmt.format(d);
+  }
+    
     const getTodayDateString = () => {
       const d = new Date();
       const y = d.getFullYear();
@@ -162,7 +182,7 @@
           ...entry,
           id: String(entry.id),
           synced: entry.synced === true,
-          date: (entry.date || (entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString())),
+          date: toKSTYmdFromISO(entry.timestamp),
           studentNumber: (entry.studentNumber || entry.name),
           reason: (entry.reason || entry.content),
           category: (entry.category || entry.tag)
@@ -174,7 +194,7 @@
         ...entry,
         id: String(entry.id),
         synced: entry.synced === true,
-        date: (entry.date || (entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString())),
+        date: (entry.date || toKSTYmdFromISO(entry.timestamp)),
         studentNumber: (entry.studentNumber || entry.name),
         reason: (entry.reason || entry.content),
         category: (entry.category || entry.tag)
@@ -185,7 +205,7 @@
       const dataToSave = data.map(entry => ({
         id: String(entry.id),
         synced: entry.synced === true,
-        date: (entry.date || (entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString())),
+        date: (entry.date || toKSTYmdFromISO(entry.timestamp)),
         studentNumber: (entry.studentNumber || entry.name),
         emotion: entry.emotion,
         emoji: entry.emoji,
