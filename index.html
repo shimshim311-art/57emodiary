@@ -71,7 +71,7 @@
        상수 / 전역 상태
        ========================= */
     // ✅ 작동 중인 GAS Web App URL 로 교체하세요
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbwXACgqFbq9KL6VV0C5mrY2z9buQ1EIo8sXggck9RcdcLQkrad646ccx5WdaOJPoLsjIA/exec";
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbzQWtHlJzzC_VNpuLD6VTKeliaRRajE3zPY1g9vpDxS2UmjWnCa48xuNoAXUczIJBPm_g/exec";
 
     let allDataCache = [];
     let dataLoaded = false;
@@ -127,14 +127,6 @@
   });
   return fmt.format(d);
   }
-    
-    const getTodayDateString = () => {
-      const d = new Date();
-      const y = d.getFullYear();
-      const m = String(d.getMonth()+1).padStart(2,'0');
-      const day = String(d.getDate()).padStart(2,'0');
-      return `${y}-${m}-${day}`;
-    };
 
     const getEmotionType = (emotion, entry=null) => {
       if (entry && entry.category) return entry.category;
@@ -170,6 +162,10 @@
       .replace(/>/g,'&gt;')
       .replace(/"/g,'&quot;')
       .replace(/'/g,'&#39;');
+    }
+    
+    function getTooltip(){
+    return document.getElementById('tooltip');
     }
 
     /* =========================
