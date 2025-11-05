@@ -102,6 +102,9 @@
 
     let toastTimeout=null, undoTimeout=null, lastDeletedEntry=null;
 
+    /* DOM 핸들 (중복 제거) */
+    const toastEl   = document.getElementById('toast');
+
     /* =========================
        유틸
        ========================= */
@@ -133,16 +136,7 @@
       return 'neutral';
     };
 
-    // ✅ 이모지 판별(대체): \p{Emoji} 미지원 문제 해결
-    function containsEmoji(str){
-      if (!str) return false;
-      const emojiRegex = /[\u203C-\u3299\u00A9\u00AE\u200D\uFE0F]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDD00-\uDFFF]/;
-      return emojiRegex.test(str);
-    }
-
     function showToast(message, actionText=null, actionCallback=null, expiryCallback=null){
-      // ✅ 지연 조회(HEAD에서 실행 시 null 문제 방지)
-      const toastEl = document.getElementById('toast');
       if (!toastEl) return;
       clearTimeout(toastTimeout); clearTimeout(undoTimeout);
       const undoBtn = actionText && actionCallback ? `<button id="undoButton" class="ml-4 font-bold underline text-blue-800">${actionText}</button>` : '';
@@ -183,7 +177,8 @@
           ...entry,
           id: String(entry.id),
           synced: entry.synced === true,
-          date: toKSTYmdFromISO(entry.timestamp),
+          // ✅ 저장된 date가 있으면 우선 사용
+          date: entry.date || toKSTYmdFromISO(entry.timestamp),
           studentNumber: (entry.studentNumber || entry.name),
           reason: (entry.reason || entry.content),
           category: (entry.category || entry.tag)
@@ -206,6 +201,10 @@
       const dataToSave = data.map(entry => ({
         id: String(entry.id),
         synced: entry.synced === true,
+        // ✅ timestamp 보존(없으면 date로부터 생성)
+        timestamp: entry.timestamp || (entry.date
+          ? new Date(`${entry.date}T00:00:00+09:00`).toISOString()
+          : new Date().toISOString()),
         date: (entry.date || toKSTYmdFromISO(entry.timestamp)),
         studentNumber: (entry.studentNumber || entry.name),
         emotion: entry.emotion,
@@ -232,7 +231,9 @@
         if (res.ok && Array.isArray(result)){
           const normalized = result.map(entry=>({
             id: String(entry.id),
-            date: entry.timestamp ? entry.timestamp.split('T')[0] : getTodayDateString(),
+            // ✅ 원본 timestamp 보존
+            timestamp: entry.timestamp || null,
+            date: entry.timestamp ? toKSTYmdFromISO(entry.timestamp) : getTodayDateString(),
             studentNumber: String(entry.name),
             emotion: entry.emotion,
             emoji: entry.emoji,
@@ -319,7 +320,7 @@
       if (!target){ console.error('No page:', pageId); return; }
       target.classList.remove('hidden'); target.classList.add('fade-in');
       window.scrollTo(0,0);
-      // ❌ 중복 전역 노출 제거 (IIFE에서 일괄 노출함)
+      window.showPage = showPage;
 
       if (pageId === 'friendsPage'){
         syncDataFromGAS(true).then(()=> renderFloatingEmotions());
@@ -408,7 +409,7 @@
         try{
           const cleaned = resp.replace(/```json\n?/,'').replace(/```$/,'');
           const obj = JSON.parse(cleaned);
-          if (obj.emoji && obj.category && containsEmoji(obj.emoji)){
+          if (obj.emoji && obj.category && /\p{Emoji}/u.test(obj.emoji)){
             pendingCustomEmotion.emoji = obj.emoji.slice(0,2);
             return setCustomCategory(obj.category);
           }
@@ -423,7 +424,7 @@
       let emoji = pendingCustomEmotion.emoji;
       if (!emoji){
         const rec = await callGeminiAPI(`다음 한국어 감정에 어울리는 얼굴 이모지 하나만 응답: "${text}"`);
-        if (rec && containsEmoji(rec)) emoji = rec.slice(0,2);
+        if (rec && /\p{Emoji}/u.test(rec)) emoji = rec.slice(0,2);
         else emoji = DEFAULT_EMOJIS[category];
       }
       selectEmotion(text, emoji, category, null);
@@ -462,9 +463,10 @@
         content: reason,
         emoji: selectedEmoji
       };
-      // 내부 캐시 포맷
+      // 내부 캐시 포맷 (✅ timestamp 포함)
       const newEntryInternal = {
         id: newEntryForGAS.id,
+        timestamp: newEntryForGAS.timestamp,
         date: today,
         studentNumber,
         emotion: selectedEmotion,
@@ -1069,7 +1071,7 @@
           .sort((a, b) => b.date.localeCompare(a.date))
           .forEach(e => {
             rec.innerHTML += `
-              <div class="bg-gray-50 p-4 rounded-xl shadow-sm border-l-4 ${
+              <div class="bg-gray-50 p-4 rounded-2xl shadow-sm border-l-4 ${
                 e.category === 'positive'
                   ? 'border-green-500'
                   : e.category === 'negative'
@@ -1200,7 +1202,6 @@ ${recent5}
       if (m){ const t = new Date(); m.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}`; }
     });
 
-    // ✅ IIFE에서 필요한 함수 전역 노출
     (() => {
       const api = {
         showPage,
@@ -1491,7 +1492,7 @@ ${recent5}
 
         <div id="notesContent" class="hidden">
           <div class="bg-white p-6 rounded-2xl shadow-lg">
-            <h2 class="text-xl font-bold mb-4">📮 도착한 쪽지 (최신순)</h2>
+            <h2 class="text-xl font-bold text-gray-800 mb-4">📮 도착한 쪽지 (최신순)</h2>
             <div id="notesList" class="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
               <div class="text-center text-gray-500 py-10">로딩 중...</div>
             </div>
