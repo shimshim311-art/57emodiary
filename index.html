@@ -313,6 +313,7 @@
       if (!target){ console.error('No page:', pageId); return; }
       target.classList.remove('hidden'); target.classList.add('fade-in');
       window.scrollTo(0,0);
+    window.showPage = showPage;
 
       if (pageId === 'friendsPage'){
         syncDataFromGAS(true).then(()=> renderFloatingEmotions());
@@ -1194,6 +1195,9 @@ ${recent5}
     });
     
     (function exposeGlobals(){
+ <script>
+/* 인라인 onclick용 하드 바인딩(안전망) - 파일 제일 아래에 한 번만 */
+(() => {
   const api = {
     showPage,
     switchDashboardTab,
@@ -1207,12 +1211,14 @@ ${recent5}
     showCustomEmotionInput,
     hideCustomEmotionInput,
     handleCustomEmotion,
-    setCustomCategory
+    setCustomCategory,
   };
-  for (const [k,v] of Object.entries(api)) window[k] = v;
+  for (const [k, v] of Object.entries(api)) {
+    window[k] = v;
+  }
 })();
+</script>
 
-  </script>
 </head>
 
 <body class="bg-gradient-to-br from-blue-50 to-purple-50 min-h-screen">
