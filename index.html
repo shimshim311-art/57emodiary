@@ -102,31 +102,28 @@
 
     let toastTimeout=null, undoTimeout=null, lastDeletedEntry=null;
 
-    /* DOM 핸들 (중복 제거) */
-    const toastEl   = document.getElementById('toast');
-
     /* =========================
        유틸
        ========================= */
     // YYYY-MM-DD (항상 KST 기준)
-  function getTodayDateString(){
-  const fmt = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric', month: '2-digit', day: '2-digit'
-  });
-  return fmt.format(new Date()); // 예: 2025-11-04
-  }
+    function getTodayDateString(){
+      const fmt = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Asia/Seoul',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+      });
+      return fmt.format(new Date()); // 예: 2025-11-04
+    }
 
-  // ISO를 KST 날짜로 변환
-  function toKSTYmdFromISO(iso){
-  if (!iso) return getTodayDateString();
-  const d = new Date(iso);
-  const fmt = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric', month: '2-digit', day: '2-digit'
-  });
-  return fmt.format(d);
-  }
+    // ISO를 KST 날짜로 변환
+    function toKSTYmdFromISO(iso){
+      if (!iso) return getTodayDateString();
+      const d = new Date(iso);
+      const fmt = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Asia/Seoul',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+      });
+      return fmt.format(d);
+    }
 
     const getEmotionType = (emotion, entry=null) => {
       if (entry && entry.category) return entry.category;
@@ -136,7 +133,16 @@
       return 'neutral';
     };
 
+    // ✅ 이모지 판별(대체): \p{Emoji} 미지원 문제 해결
+    function containsEmoji(str){
+      if (!str) return false;
+      const emojiRegex = /[\u203C-\u3299\u00A9\u00AE\u200D\uFE0F]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDD00-\uDFFF]/;
+      return emojiRegex.test(str);
+    }
+
     function showToast(message, actionText=null, actionCallback=null, expiryCallback=null){
+      // ✅ 지연 조회(HEAD에서 실행 시 null 문제 방지)
+      const toastEl = document.getElementById('toast');
       if (!toastEl) return;
       clearTimeout(toastTimeout); clearTimeout(undoTimeout);
       const undoBtn = actionText && actionCallback ? `<button id="undoButton" class="ml-4 font-bold underline text-blue-800">${actionText}</button>` : '';
@@ -163,9 +169,9 @@
       .replace(/"/g,'&quot;')
       .replace(/'/g,'&#39;');
     }
-    
+
     function getTooltip(){
-    return document.getElementById('tooltip');
+      return document.getElementById('tooltip');
     }
 
     /* =========================
@@ -313,7 +319,7 @@
       if (!target){ console.error('No page:', pageId); return; }
       target.classList.remove('hidden'); target.classList.add('fade-in');
       window.scrollTo(0,0);
-    window.showPage = showPage;
+      // ❌ 중복 전역 노출 제거 (IIFE에서 일괄 노출함)
 
       if (pageId === 'friendsPage'){
         syncDataFromGAS(true).then(()=> renderFloatingEmotions());
@@ -402,7 +408,7 @@
         try{
           const cleaned = resp.replace(/```json\n?/,'').replace(/```$/,'');
           const obj = JSON.parse(cleaned);
-          if (obj.emoji && obj.category && /\p{Emoji}/u.test(obj.emoji)){
+          if (obj.emoji && obj.category && containsEmoji(obj.emoji)){
             pendingCustomEmotion.emoji = obj.emoji.slice(0,2);
             return setCustomCategory(obj.category);
           }
@@ -417,7 +423,7 @@
       let emoji = pendingCustomEmotion.emoji;
       if (!emoji){
         const rec = await callGeminiAPI(`다음 한국어 감정에 어울리는 얼굴 이모지 하나만 응답: "${text}"`);
-        if (rec && /\p{Emoji}/u.test(rec)) emoji = rec.slice(0,2);
+        if (rec && containsEmoji(rec)) emoji = rec.slice(0,2);
         else emoji = DEFAULT_EMOJIS[category];
       }
       selectEmotion(text, emoji, category, null);
@@ -1193,26 +1199,27 @@ ${recent5}
       const m = document.getElementById('dashboardMonth');
       if (m){ const t = new Date(); m.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}`; }
     });
-    
-(() => {
-  const api = {
-    showPage,
-    switchDashboardTab,
-    refreshDashboardData,
-    clearLocalCache,
-    logoutTeacher,
-    handleTeacherLogin,
-    renderStudentReport,
-    fetchAIAdvice,
-    selectEmotion,
-    showCustomEmotionInput,
-    hideCustomEmotionInput,
-    handleCustomEmotion,
-    setCustomCategory,
-  };
-  Object.assign(window, api);
-})();
-</script>
+
+    // ✅ IIFE에서 필요한 함수 전역 노출
+    (() => {
+      const api = {
+        showPage,
+        switchDashboardTab,
+        refreshDashboardData,
+        clearLocalCache,
+        logoutTeacher,
+        handleTeacherLogin,
+        renderStudentReport,
+        fetchAIAdvice,
+        selectEmotion,
+        showCustomEmotionInput,
+        hideCustomEmotionInput,
+        handleCustomEmotion,
+        setCustomCategory,
+      };
+      Object.assign(window, api);
+    })();
+  </script>
 
 </head>
 
@@ -1353,7 +1360,7 @@ ${recent5}
     <!-- 친구들 감정 -->
     <div id="friendsPage" class="hidden container mx-auto px-4 py-8">
       <div class="max-w-4xl mx-auto">
-        <div class="bg-white rounded-3xl shadow-xl p-8 fade-in">
+        <div class="bg-white rounded-3xl shadow-XL p-8 fade-in shadow-xl">
           <div class="flex items-center justify-between mb-8">
             <h2 class="text-3xl font-bold text-gray-800">👫 친구들 감정 확인하기</h2>
             <button onclick="showPage('mainPage')" class="text-gray-500 hover:text-gray-700 text-2xl">✕</button>
