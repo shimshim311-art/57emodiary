@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>우리반 감정일기</title>
 
-  <!-- Tailwind & Chart.js -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -30,7 +29,7 @@
       75%{ transform: translateY(-15px) rotate(1deg);}
     }
 
-    /* 툴팁 (삐침 제거 & 화면 고정) */
+    /* 툴팁 */
     .tooltip{
       position: fixed; background: rgba(255,255,255,.95); color:#333;
       padding:12px 16px; border-radius:12px; border:1px solid #ddd; font-size:14px;
@@ -70,23 +69,17 @@
     /* =========================
        상수 / 전역 상태
        ========================= */
-    // ✅ 작동 중인 GAS Web App URL 로 교체하세요
     const GAS_URL = "https://script.google.com/macros/s/AKfycbzQWtHlJzzC_VNpuLD6VTKeliaRRajE3zPY1g9vpDxS2UmjWnCa48xuNoAXUczIJBPm_g/exec";
+    const API_KEY = "AIzaSyDnAn0avxLdzICLBYitlpUMErEqB2jB97s"; 
 
     let allDataCache = [];
     let dataLoaded = false;
-
     const DB_NAME = 'emotionDiaryDB_v2';
     const PENDING_DELETES = 'emotionDiary_pendingDeletes';
     const TEACHER_PASSWORD = 'teacher572';
 
-    // (선택) Gemini API 사용 시 설정
-    const API_KEY = "AIzaSyDnAn0avxLdzICLBYitlpUMErEqB2jB97s"; // 필요 시 키 입력
-
-    // 학생 번호 목록
     const STUDENT_NUMBERS = ["2","3","4","5","6","7","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","30"];
 
-    // 감정/이모지 사전
     const EMOTIONS = {
       positive:{'기쁨':'😊','설렘':'🤗','만족':'🙂','평온함':'😇','감사':'🥰','자신감':'😎','희망':'😌','즐거움':'😄','사랑':'😍','뿌듯함':'🤩'},
       negative:{'슬픔':'😢','분노':'😠','좌절':'😞','두려움':'😨','불안':'😰','외로움':'😔','실망':'😕','후회':'😣','질투':'😒','짜증':'😤'},
@@ -97,46 +90,32 @@
     let chartInstances = {};
     let currentStudentForReport = null;
     let pendingCustomEmotion = {};
-
     const pages = ['mainPage','studentPage','friendsPage','teacherLogin','teacherDashboard','studentReportPage','studentLogin','noteToTeacherPage'];
-
     let toastTimeout=null, undoTimeout=null, lastDeletedEntry=null;
 
-    /* DOM 핸들 (중복 제거) */
-    const toastEl   = document.getElementById('toast');
-
     /* =========================
-       유틸
+       유틸리티 함수들
        ========================= */
-    // YYYY-MM-DD (항상 KST 기준)
     function getTodayDateString(){
-      const fmt = new Intl.DateTimeFormat('sv-SE', {
-        timeZone: 'Asia/Seoul',
-        year: 'numeric', month: '2-digit', day: '2-digit'
-      });
-      return fmt.format(new Date()); // 예: 2025-11-04
+      const fmt = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
+      return fmt.format(new Date());
     }
 
-    // ISO를 KST 날짜로 변환
     function toKSTYmdFromISO(iso){
       if (!iso) return getTodayDateString();
       const d = new Date(iso);
-      const fmt = new Intl.DateTimeFormat('sv-SE', {
-        timeZone: 'Asia/Seoul',
-        year: 'numeric', month: '2-digit', day: '2-digit'
-      });
+      const fmt = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
       return fmt.format(d);
     }
 
     const getEmotionType = (emotion, entry=null) => {
       if (entry && entry.category) return entry.category;
-      for (const type in EMOTIONS){
-        if (EMOTIONS[type][emotion]) return type;
-      }
+      for (const type in EMOTIONS) if (EMOTIONS[type][emotion]) return type;
       return 'neutral';
     };
 
     function showToast(message, actionText=null, actionCallback=null, expiryCallback=null){
+      const toastEl = document.getElementById('toast');
       if (!toastEl) return;
       clearTimeout(toastTimeout); clearTimeout(undoTimeout);
       const undoBtn = actionText && actionCallback ? `<button id="undoButton" class="ml-4 font-bold underline text-blue-800">${actionText}</button>` : '';
@@ -155,85 +134,41 @@
       }, hideDelay);
     }
 
-    // HTML 이스케이프
-    function escapeHtml(s){ return String(s)
-      .replace(/&/g,'&amp;')
-      .replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;')
-      .replace(/"/g,'&quot;')
-      .replace(/'/g,'&#39;');
-    }
-
-    function getTooltip(){
-      return document.getElementById('tooltip');
-    }
+    function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+    function getTooltip(){ return document.getElementById('tooltip'); }
 
     /* =========================
-       로컬 캐시
+       데이터 로컬 저장 및 동기화
        ========================= */
     const getAllData = () => {
-      if (dataLoaded){
-        return allDataCache.map(entry => ({
-          ...entry,
-          id: String(entry.id),
-          synced: entry.synced === true,
-          // ✅ 저장된 date가 있으면 우선 사용
-          date: entry.date || toKSTYmdFromISO(entry.timestamp),
-          studentNumber: (entry.studentNumber || entry.name),
-          reason: (entry.reason || entry.content),
-          category: (entry.category || entry.tag)
-        }));
-      }
       const localData = localStorage.getItem(DB_NAME);
       const arr = localData ? JSON.parse(localData) : [];
       return arr.map(entry => ({
         ...entry,
         id: String(entry.id),
-        synced: entry.synced === true,
         date: (entry.date || toKSTYmdFromISO(entry.timestamp)),
-        studentNumber: (entry.studentNumber || entry.name),
+        studentNumber: String(entry.studentNumber || entry.name),
         reason: (entry.reason || entry.content),
         category: (entry.category || entry.tag)
       }));
     };
 
     const saveDataLocally = (data) => {
-      const dataToSave = data.map(entry => ({
-        id: String(entry.id),
-        synced: entry.synced === true,
-        // ✅ timestamp 보존(없으면 date로부터 생성)
-        timestamp: entry.timestamp || (entry.date
-          ? new Date(`${entry.date}T00:00:00+09:00`).toISOString()
-          : new Date().toISOString()),
-        date: (entry.date || toKSTYmdFromISO(entry.timestamp)),
-        studentNumber: (entry.studentNumber || entry.name),
-        emotion: entry.emotion,
-        emoji: entry.emoji,
-        reason: (entry.reason || entry.content),
-        category: (entry.category || entry.tag)
-      }));
-      localStorage.setItem(DB_NAME, JSON.stringify(dataToSave));
-      allDataCache = dataToSave;
+      localStorage.setItem(DB_NAME, JSON.stringify(data));
+      allDataCache = data;
       dataLoaded = true;
     };
 
-    /* =========================
-       GAS 통신
-       ========================= */
     async function syncDataFromGAS(isForce=false){
       if (!isForce && dataLoaded) return true;
-      const btn = document.getElementById('refreshDataBtn');
-      if (btn){ btn.disabled = true; btn.textContent = '불러오는 중...'; }
-
       try {
         const res = await fetch(GAS_URL + '?action=readAll', { mode:'cors' });
         const result = await res.json();
         if (res.ok && Array.isArray(result)){
           const normalized = result.map(entry=>({
             id: String(entry.id),
-            // ✅ 원본 timestamp 보존
-            timestamp: entry.timestamp || null,
-            date: entry.timestamp ? toKSTYmdFromISO(entry.timestamp) : getTodayDateString(),
+            timestamp: entry.timestamp,
+            date: toKSTYmdFromISO(entry.timestamp),
             studentNumber: String(entry.name),
             emotion: entry.emotion,
             emoji: entry.emoji,
@@ -242,1351 +177,402 @@
             synced: true
           }));
           saveDataLocally(normalized);
-          await flushPendingDeletes();
           return true;
-        } else {
-          console.error('GAS 데이터 로드 오류:', result);
-          showToast('데이터 로드 중 오류 발생! 로컬 캐시를 사용합니다.');
-          allDataCache = getAllData(); dataLoaded = true; return false;
         }
-      } catch (e){
-        console.error('Fetch Error (ReadAll):', e);
-        showToast('서버 통신 오류로 데이터를 불러올 수 없습니다. 로컬 캐시를 사용합니다.');
-        allDataCache = getAllData(); dataLoaded = true; return false;
-      } finally {
-        if (btn){ btn.disabled = false; btn.textContent = '새로고침'; }
-      }
-    }
-
-    function enqueuePendingDelete(idStr){
-      try{
-        const q = JSON.parse(localStorage.getItem(PENDING_DELETES)||'[]');
-        if (!q.includes(idStr)) q.push(idStr);
-        localStorage.setItem(PENDING_DELETES, JSON.stringify(q));
-      }catch{}
-    }
-
-    async function flushPendingDeletes(){
-      const q = JSON.parse(localStorage.getItem(PENDING_DELETES)||'[]');
-      if (!q.length) return;
-      const remains = [];
-      for (const idStr of q){
-        try{
-          const res = await fetch(GAS_URL, {
-            method:'POST', mode:'cors',
-            headers:{'Content-Type':'text/plain;charset=utf-8'},
-            body: JSON.stringify({ action:'delete', id:idStr, id_numeric:(idStr.match(/\d+/)?.[0] ?? null) })
-          });
-          const result = await res.json();
-          const ok = res.ok && result.status === 'success';
-          if (!ok){
-            if (!(result.message && result.message.includes('삭제할 ID를 찾을 수 없습니다'))){
-              remains.push(idStr);
-            }
-          }
-        } catch {
-          remains.push(idStr);
-        }
-      }
-      localStorage.setItem(PENDING_DELETES, JSON.stringify(remains));
+      } catch (e) { console.error(e); return false; }
     }
 
     /* =========================
-       차트 도우미
-       ========================= */
-    function renderChart(canvasOrId, type, data, options){
-      let el = null;
-      if (typeof canvasOrId === 'string'){
-        el = document.getElementById(canvasOrId) || document.querySelector(canvasOrId);
-      } else if (canvasOrId instanceof HTMLCanvasElement){
-        el = canvasOrId;
-      }
-      if (!el){ console.error('Canvas not found:', canvasOrId); return; }
-      const key = el.id || el.dataset.chartId || (el.dataset.chartId = `chart-${Math.random()}`);
-      if (chartInstances[key]) chartInstances[key].destroy();
-      const ctx = el.getContext('2d');
-      chartInstances[key] = new Chart(ctx, { type, data, options });
-    }
-
-    /* =========================
-       페이지 전환 / 폼 채우기
+       페이지 전환 및 폼 설정
        ========================= */
     function showPage(pageId){
       pages.forEach(pid=>{
         const el = document.getElementById(pid);
-        if (el){ el.classList.add('hidden'); el.classList.remove('fade-in'); }
+        if (el) el.classList.add('hidden');
       });
       const target = document.getElementById(pageId);
-      if (!target){ console.error('No page:', pageId); return; }
-      target.classList.remove('hidden'); target.classList.add('fade-in');
-      window.scrollTo(0,0);
-      window.showPage = showPage;
-
-      if (pageId === 'friendsPage'){
-        syncDataFromGAS(true).then(()=> renderFloatingEmotions());
+      if (target) {
+        target.classList.remove('hidden');
+        target.classList.add('fade-in');
       }
+      if (pageId === 'friendsPage') renderFloatingEmotions();
       if (pageId === 'teacherDashboard') renderTeacherDashboard();
       if (['studentLogin','studentPage','noteToTeacherPage'].includes(pageId)) populateForms();
     }
+    window.showPage = showPage;
 
     function populateForms(){
       const numSelect = document.getElementById('studentNumber');
       const loginNum = document.getElementById('studentLoginNumber');
       const noteNum = document.getElementById('noteStudentNumber');
-      const opts = ['<option value="">번호 선택</option>'].concat(
-        STUDENT_NUMBERS.map(n=> `<option value="${n}">${n}번</option>`)
-      ).join('');
+      const opts = ['<option value="">번호 선택</option>'].concat(STUDENT_NUMBERS.map(n=> `<option value="${n}">${n}번</option>`)).join('');
       if (numSelect) numSelect.innerHTML = opts;
       if (loginNum) loginNum.innerHTML = opts;
       if (noteNum) noteNum.innerHTML = opts;
 
-      // 이모티콘 칸 채우기
-      Object.entries(EMOTIONS).forEach(([category, emotions])=>{
+      ['positive', 'negative', 'neutral'].forEach(category => {
         const container = document.getElementById(`${category}Emotions`);
         if (!container) return;
-        container.innerHTML = '';
-        const bg = category==='positive' ? 'bg-green-50 hover:bg-green-100'
-                 : category==='negative' ? 'bg-red-50 hover:bg-red-100'
-                 : 'bg-gray-50 hover:bg-gray-100';
-        for (const [emotion,emoji] of Object.entries(emotions)){
-          container.innerHTML += `
-            <div class="emotion-card ${bg} p-3 rounded-lg cursor-pointer text-center text-xs"
-                 onclick="selectEmotion('${emotion}','${emoji}','${category}', this)">
-              <div class="text-2xl mb-1">${emoji}</div>
-              <div class="font-medium">${emotion}</div>
-            </div>`;
-        }
+        container.innerHTML = Object.entries(EMOTIONS[category]).map(([emo, emoji]) => `
+          <div class="emotion-card p-3 rounded-lg cursor-pointer text-center text-xs bg-gray-50" onclick="selectEmotion('${emo}','${emoji}','${category}', this)">
+            <div class="text-2xl mb-1">${emoji}</div><div class="font-medium">${emo}</div>
+          </div>`).join('');
       });
     }
 
-    function selectEmotion(emotion,emoji,category,el){
+    function selectEmotion(emotion, emoji, category, el){
       document.querySelectorAll('.emotion-card').forEach(x=> x.classList.remove('ring-2','ring-blue-500'));
       if (el) el.classList.add('ring-2','ring-blue-500');
       document.getElementById('selectedEmotion').value = emotion;
       document.getElementById('selectedEmoji').value = emoji;
       document.getElementById('selectedCategory').value = category;
     }
-    function showCustomEmotionInput(){ document.getElementById('customEmotionContainer').classList.remove('hidden'); }
-    function hideCustomEmotionInput(){ document.getElementById('customEmotionContainer').classList.add('hidden'); }
 
+    /* =========================
+       Gemini API 호출 (조언 생성)
+       ========================= */
     async function callGeminiAPI(prompt){
       if (!API_KEY) return null;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
-        let response; let delay = 1000;
-        for (let i=0;i<5;i++){
-          response = await fetch(url, {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ contents:[{ parts:[{ text: prompt }]}] })
-          });
-          if (response.ok) break;
-          if (response.status===429 || response.status>=500){
-            await new Promise(r=> setTimeout(r, delay)); delay *= 2;
-          } else {
-            return null;
-          }
-        }
-        if (!response.ok) return null;
+      try {
+        const response = await fetch(url, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ contents:[{ parts:[{ text: prompt }]}] })
+        });
         const result = await response.json();
         return result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-      } catch { return null; }
-    }
-
-    async function handleCustomEmotion(){
-      const inputEl = document.getElementById('customEmotionInput');
-      const text = inputEl.value.trim();
-      if (!text) return showToast('감정을 입력해주세요.');
-      const btn = inputEl.nextElementSibling;
-      btn.disabled = true; btn.textContent = '...';
-
-      pendingCustomEmotion = { text, emoji: null };
-
-      const prompt = `다음 한국어 감정을 분석해서 가장 어울리는 대표 얼굴 표정 이모지(emoji)와 감정의 긍정/부정/중립 분류를 JSON 형식으로 응답해 주세요. category는 'positive', 'negative', 'neutral' 중 하나여야 합니다. 다른 설명 없이 JSON 객체만 응답해야 합니다. 형식: {"emoji": "...", "category": "..."}\n\n감정: "${text}"`;
-      const resp = await callGeminiAPI(prompt);
-      btn.disabled = false; btn.textContent = '확인';
-
-      if (resp){
-        try{
-          const cleaned = resp.replace(/```json\n?/,'').replace(/```$/,'');
-          const obj = JSON.parse(cleaned);
-          if (obj.emoji && obj.category && /\p{Emoji}/u.test(obj.emoji)){
-            pendingCustomEmotion.emoji = obj.emoji.slice(0,2);
-            return setCustomCategory(obj.category);
-          }
-        } catch {}
-      }
-      document.getElementById('fallbackEmotionText').textContent = `"${text}"`;
-      document.getElementById('categoryModal').classList.remove('hidden');
-    }
-
-    async function setCustomCategory(category){
-      const text = pendingCustomEmotion.text;
-      let emoji = pendingCustomEmotion.emoji;
-      if (!emoji){
-        const rec = await callGeminiAPI(`다음 한국어 감정에 어울리는 얼굴 이모지 하나만 응답: "${text}"`);
-        if (rec && /\p{Emoji}/u.test(rec)) emoji = rec.slice(0,2);
-        else emoji = DEFAULT_EMOJIS[category];
-      }
-      selectEmotion(text, emoji, category, null);
-      showToast(`'${text} ${emoji}' 감정이 선택되었습니다.`);
-      document.getElementById('categoryModal').classList.add('hidden');
-      pendingCustomEmotion = {};
-    }
-
-    /* =========================
-       제출/저장 처리
-       ========================= */
-    async function onEmotionSubmit(e){
-      e.preventDefault();
-      const today = getTodayDateString();
-      const studentNumber = document.getElementById('studentNumber').value;
-      const selectedEmotion = document.getElementById('selectedEmotion').value;
-      const selectedEmoji = document.getElementById('selectedEmoji').value;
-      const selectedCategory = document.getElementById('selectedCategory').value || 'neutral';
-      const reason = document.getElementById('emotionReason').value.trim();
-
-      if (!studentNumber) return showToast('번호를 선택해주세요!');
-      if (!selectedEmotion) return showToast('감정을 선택해주세요!');
-      if (!reason) return showToast('감정의 이유를 입력해주세요!');
-
-      if (getAllData().find(d=> d.date===today && d.studentNumber===studentNumber)){
-        return showToast('이미 오늘 감정일기를 작성했어요!');
-      }
-
-      // 시트 포맷
-      const newEntryForGAS = {
-        id: Date.now(),
-        timestamp: new Date().toISOString(),
-        name: studentNumber,
-        emotion: selectedEmotion,
-        tag: selectedCategory,
-        content: reason,
-        emoji: selectedEmoji
-      };
-      // 내부 캐시 포맷 (✅ timestamp 포함)
-      const newEntryInternal = {
-        id: newEntryForGAS.id,
-        timestamp: newEntryForGAS.timestamp,
-        date: today,
-        studentNumber,
-        emotion: selectedEmotion,
-        emoji: selectedEmoji,
-        reason,
-        category: selectedCategory,
-        synced: false
-      };
-
-      const submitBtn = e.target.querySelector('button[type="submit"]');
-      submitBtn.disabled = true; submitBtn.textContent = '저장 중...';
-      let serverSuccess = false;
-
-      try{
-        const res = await fetch(GAS_URL, {
-          method:'POST', mode:'cors',
-          headers:{'Content-Type':'text/plain;charset=utf-8'},
-          body: JSON.stringify({ action:'create', data: newEntryForGAS })
-        });
-        const txt = await res.text();
-        let result;
-        try{ if (!txt) throw new Error('EMPTY'); result = JSON.parse(txt); }
-        catch{ result = { status:'error', message:'응답 파싱 오류' }; }
-
-        if (res.ok && result.status === 'success'){
-          const serverId = String(result.id ?? newEntryForGAS.id);
-          const entry = { ...newEntryInternal, id: serverId, synced: true };
-          allDataCache.push(entry);
-          serverSuccess = true;
-          const msgs = [
-            "오늘도 힘내세요! 멋진 하루가 될 거예요. 화이팅!",
-            "아침부터 기록하는 당신, 정말 멋져요! 응원합니다!",
-            "좋은 시작이에요! 오늘 하루도 긍정 에너지 가득하길!",
-            "감사합니다! 당신의 하루를 응원할게요. 화이팅!",
-            "기록 완료! 오늘 하루도 반짝반짝 빛나길 바라요."
-          ];
-          showToast(msgs[Math.floor(Math.random()*msgs.length)]);
-        } else {
-          allDataCache.push(newEntryInternal);
-          showToast(`저장 실패: ${result.message || '서버 오류. 교사에게 문의하세요.'}`);
-        }
-      } catch (err){
-        allDataCache.push(newEntryInternal);
-        showToast('서버 통신 오류! 기록을 로컬에 임시 저장했습니다. 다시 시도해 주세요.');
-      } finally {
-        submitBtn.disabled = false; submitBtn.textContent = '💾 감정일기 저장하기';
-        saveDataLocally(allDataCache);
-        e.target.reset();
-        document.querySelectorAll('.emotion-card').forEach(el=> el.classList.remove('ring-2','ring-blue-500'));
-        if (serverSuccess) showPage('mainPage');
+      } catch (e) { 
+        console.error("Gemini API Error:", e);
+        return null; 
       }
     }
 
-    async function onSendNote(e){
-      e.preventDefault();
-      const studentNumber = document.getElementById('noteStudentNumber').value;
-      const content = document.getElementById('noteContent').value.trim();
-      if (!studentNumber || !content) return showToast('번호 선택과 쪽지 내용을 모두 입력해주세요.');
-
-      const entry = { timestamp:new Date().toISOString(), name:studentNumber, content };
-      const btn = e.target.querySelector('button[type="submit"]');
-      btn.disabled = true; btn.textContent = '전송 중...';
-
-      try{
-        const res = await fetch(GAS_URL, {
-          method:'POST', mode:'cors',
-          headers:{'Content-Type':'text/plain;charset=utf-8'},
-          body: JSON.stringify({ action:'sendNote', data: entry })
-        });
-        const txt = await res.text();
-        let result; try{ if (!txt) throw new Error('EMPTY'); result = JSON.parse(txt);} catch{ result = {status:'error'}; }
-        if (res.ok && result.status==='success'){
-          showToast('쪽지가 선생님께 성공적으로 전달되었습니다! (비밀 보장)');
-          e.target.reset(); showPage('mainPage');
-        } else {
-          showToast('쪽지 전송 실패: 서버 오류. GAS 설정을 확인해주세요.');
-        }
-      } catch {
-        showToast('서버 통신 오류로 쪽지 전송에 실패했습니다.');
-      } finally {
-        btn.disabled = false; btn.textContent = '💌 쪽지 전송하기';
-      }
-    }
-
-    /* =========================
-       친구들 페이지
-       ========================= */
-    function renderFloatingEmotions() {
-      const container = document.getElementById('floatingEmotions');
-      container.innerHTML = '<div class="text-center py-10"><div class="loader mx-auto"></div><p class="text-gray-600 mt-4">친구들의 감정 기록을 서버에서 불러오는 중...</p></div>';
-
-      const todaysData = getAllData().filter(d => d.date === getTodayDateString());
-
-      // 레이아웃이 잡힌 뒤 치수 계산을 위해 다음 프레임으로 미룸
-      requestAnimationFrame(() => {
-        if (todaysData.length === 0) {
-          container.innerHTML = '<div class="text-center text-gray-500 py-20">아직 일기를 쓴 친구가 없어요.</div>';
-          return;
-        }
-
-        container.innerHTML = '';
-        const positions = [];
-        const emojiSize = 48;
-        const cw = container.clientWidth || container.offsetWidth;
-        const ch = container.clientHeight || container.offsetHeight;
-
-        todaysData.forEach((entry) => {
-          const el = document.createElement('div');
-          el.className = 'floating-emotion';
-          el.textContent = entry.emoji || '🙂';
-
-          // 겹치지 않게 랜덤 배치
-          let left, top, overlap, tries = 0;
-          do {
-            overlap = false;
-            left = Math.random() * Math.max(1, (cw - emojiSize));
-            top  = Math.random() * Math.max(1, (ch - emojiSize));
-            for (const p of positions) {
-              if (left < p.right && left + emojiSize > p.left && top < p.bottom && top + emojiSize > p.top) {
-                overlap = true; break;
-              }
-            }
-            tries++;
-          } while (overlap && tries < 120);
-          positions.push({ left, top, right: left + emojiSize, bottom: top + emojiSize });
-
-          el.style.left = left + 'px';
-          el.style.top  = top  + 'px';
-          el.style.animationDelay = (Math.random() * 5) + 's';
-
-          // 툴팁 표시/숨김
-          const showDetail = () => {
-            const rect = el.getBoundingClientRect();
-            const tip = getTooltip();
-            if (!tip) return;
-
-            tip.innerHTML =
-              '<strong>' + entry.studentNumber + '번 (' + escapeHtml(entry.emotion) + ')</strong><br>' +
-              '<span class="text-sm">' + escapeHtml(entry.reason || '') + '</span>';
-            tip.classList.add('show');
-
-            // 크기 측정 후 위치 계산
-            const w = tip.offsetWidth, h = tip.offsetHeight;
-            let L = rect.left + rect.width/2 - w/2;
-            let T = rect.top - h - 10;
-            if (L < 10) L = 10;
-            if (L + w > window.innerWidth - 10) L = window.innerWidth - w - 10;
-            if (T < 10) T = 10;
-
-            tip.style.left = L + 'px';
-            tip.style.top  = T + 'px';
-          };
-
-          const hideDetail = () => {
-            const tip = getTooltip();
-            if (tip) tip.classList.remove('show');
-          };
-
-          // 마우스
-          el.addEventListener('mouseenter', showDetail);
-          el.addEventListener('mouseleave', hideDetail);
-
-          // 터치(모바일)
-          let hideTimer = null;
-          el.addEventListener('touchstart', (ev) => {
-            ev.preventDefault();
-            showDetail();
-            clearTimeout(hideTimer);
-            hideTimer = setTimeout(hideDetail, 3000);
-          }, {passive:false});
-          el.addEventListener('touchend',   () => { clearTimeout(hideTimer); hideDetail(); });
-          el.addEventListener('touchcancel',() => { clearTimeout(hideTimer); hideDetail(); });
-
-          container.appendChild(el);
-      });
-    }
-
-    /* =========================
-       교사 대시보드 / 삭제
-       ========================= */
-    function handleTeacherLogin(ev){
-      if (ev && ev.preventDefault) ev.preventDefault();
-      const pw = document.getElementById('teacherPassword');
-      if (pw.value === TEACHER_PASSWORD){
-        document.getElementById('loginError').classList.add('hidden'); pw.value='';
-        showPage('teacherDashboard');
-      } else {
-        document.getElementById('loginError').classList.remove('hidden');
-      }
-      return false;
-    }
-    function logoutTeacher(){ showPage('mainPage'); }
-
-    async function clearLocalCache(){
-      localStorage.removeItem(DB_NAME);
-      localStorage.removeItem(PENDING_DELETES);
-      allDataCache = []; dataLoaded = false;
-      showToast('브라우저 캐시를 삭제하고 서버에서 최신 데이터를 불러옵니다...');
-      await syncDataFromGAS(true);
-      if (document.getElementById('teacherDashboard').classList.contains('hidden')) showPage('mainPage');
-      else renderTeacherDashboard();
-    }
-
-    function switchDashboardTab(tab){
-      document.getElementById('dailyTab').classList.toggle('active', tab==='daily');
-      document.getElementById('monthlyTab').classList.toggle('active', tab==='monthly');
-      document.getElementById('notesTab').classList.toggle('active', tab==='notes');
-
-      document.getElementById('dailyReportContent').classList.toggle('hidden', tab!=='daily');
-      document.getElementById('monthlyReportContent').classList.toggle('hidden', tab!=='monthly');
-      document.getElementById('notesContent').classList.toggle('hidden', tab!=='notes');
-
-      document.getElementById('dashboardDate').classList.toggle('hidden', tab!=='daily');
-      document.getElementById('dashboardMonth').classList.toggle('hidden', tab!=='monthly');
-
-      if (tab==='daily'){ renderDailyReport(); renderStudentListForDashboard(); }
-      if (tab==='monthly') renderMonthlyReport();
-      if (tab==='notes') renderTeacherNotes();
-    }
-
-    function renderTeacherDashboard(){
-      const datePicker = document.getElementById('dashboardDate');
-      const monthPicker = document.getElementById('dashboardMonth');
-      datePicker.value = datePicker.value || getTodayDateString();
-      const today = new Date();
-      monthPicker.value = monthPicker.value || `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
-
-      if (!datePicker.dataset.listenerAttached){
-        datePicker.addEventListener('change', ()=>{ renderDailyReport(); renderStudentListForDashboard(); });
-        datePicker.dataset.listenerAttached = 'true';
-      }
-      if (!monthPicker.dataset.listenerAttached){
-        monthPicker.addEventListener('change', renderMonthlyReport);
-        monthPicker.dataset.listenerAttached = 'true';
-      }
-      const activeId = document.querySelector('.tab-button.active')?.id;
-      switchDashboardTab(activeId==='monthlyTab' ? 'monthly' : (activeId==='notesTab' ? 'notes' : 'daily'));
-      if (document.querySelector('.tab-button.active')?.id!=='notesTab') renderStudentListForDashboard();
-    }
-
-    function handleListClick(e){
-      if (e.target.classList.contains('delete-btn')){
-        const rawId = e.target.dataset.id;
-        deleteEntry(rawId);
-      }
-    }
-
-    async function deleteEntry(id){
-      const idStr = String(id);
-      if (!idStr){ showToast('삭제 오류: ID가 비어 있습니다.'); return; }
-      const btn = document.querySelector(`button[data-id="${idStr}"]`);
-      if (btn){ btn.disabled = true; btn.textContent = '...'; }
-
-      const idx = allDataCache.findIndex(e=> String(e.id)===idStr);
-      if (idx === -1){
-        showToast('삭제 오류: 해당 기록을 찾을 수 없습니다.');
-        if (btn){ btn.disabled=false; btn.textContent='삭제'; }
-        return;
-      }
-
-      lastDeletedEntry = allDataCache.splice(idx,1)[0];
-      saveDataLocally(allDataCache);
-      refreshAfterDelete();
-
-      showToast('기록이 삭제되었습니다.','되돌리기', ()=> undoDelete(), ()=> confirmDelete());
-    }
-
-    function undoDelete(){
-      if (!lastDeletedEntry) return;
-      allDataCache.push(lastDeletedEntry);
-      allDataCache.sort((a,b)=> a.date.localeCompare(b.date));
-      saveDataLocally(allDataCache);
-      refreshAfterDelete();
-      showToast('삭제가 취소되었습니다.');
-      lastDeletedEntry=null; clearTimeout(undoTimeout);
-    }
-
-    async function confirmDelete(){
-      if (!lastDeletedEntry) return;
-      const entry = lastDeletedEntry;
-      lastDeletedEntry = null;
-      if (entry.synced !== true) return; // 로컬-only는 끝
-
-      try{
-        const res = await fetch(GAS_URL, {
-          method:'POST', mode:'cors',
-          headers:{'Content-Type':'text/plain;charset=utf-8'},
-          body: JSON.stringify({ action:'delete', id: entry.id, id_numeric:(String(entry.id).match(/\d+/)?.[0] ?? null)})
-        });
-        let result={}; try{ const t = await res.text(); result = t? JSON.parse(t):{}; } catch {}
-        if (!(res.ok && result.status==='success')) enqueuePendingDelete(String(entry.id));
-      } catch {
-        enqueuePendingDelete(String(entry.id));
-      }
-    }
-
-    function refreshAfterDelete(){
-      if (!document.getElementById('teacherDashboard').classList.contains('hidden') &&
-          document.getElementById('dailyTab').classList.contains('active')){
-        renderDailyReport(); renderStudentListForDashboard();
-      } else if (!document.getElementById('studentReportPage').classList.contains('hidden') && currentStudentForReport){
-        renderStudentReport(currentStudentForReport);
-      }
-    }
-
-    function renderDailyReport(){
-      const selectedDate = document.getElementById('dashboardDate').value;
-      document.getElementById('dailyDistributionTitle').textContent = `${selectedDate} 감정 분포`;
-      document.getElementById('dailyEntriesTitle').textContent = `${selectedDate}의 기록`;
-
-      const daily = getAllData().filter(d=> d.date===selectedDate);
-      const counts = { positive:0, negative:0, neutral:0 };
-      daily.forEach(e=> counts[getEmotionType(e.emotion,e)]++);
-
-      document.getElementById('todaySubmissionCount').textContent = `${daily.length} / ${STUDENT_NUMBERS.length}`;
-      document.getElementById('todayPositiveCount').textContent = counts.positive;
-      document.getElementById('todayNegativeCount').textContent = counts.negative;
-
-      renderChart('dailyDistributionChart','pie',{
-        labels:['긍정','부정','중립'],
-        datasets:[{ data:Object.values(counts), backgroundColor:['#4CAF50','#F44336','#FFC107']}]
-      }, { responsive:true, maintainAspectRatio:false });
-
-      const list = document.getElementById('dailyEntriesList');
-      list.innerHTML = daily.length ? '' : '<p class="text-gray-500">선택한 날짜에 기록이 없습니다.</p>';
-      daily.forEach(entry=>{
-        list.innerHTML += `
-          <div class="border-b pb-3 flex items-center">
-            <div class="flex-grow">
-              <p class="font-bold">${entry.emoji} ${entry.studentNumber}번 - <span class="font-medium">${entry.emotion}</span></p>
-              <p class="text-sm text-gray-600 pl-7">${entry.reason}</p>
-            </div>
-            <button data-id="${String(entry.id)}"
-              class="delete-btn bg-red-100 text-red-600 hover:bg-red-200 text-xs font-bold py-1 px-2 rounded-md">
-              삭제
-            </button>
-          </div>`;
-      });
-      list.removeEventListener('click', handleListClick);
-      list.addEventListener('click', handleListClick);
-      renderStudentListForDashboard();
-    }
-
-    function renderMonthlyReport(){
-      const monthString = document.getElementById('dashboardMonth').value;
-      const [y,m] = monthString.split('-').map(Number);
-      const monthData = getAllData().filter(d=> d.date.startsWith(monthString));
-      const days = new Date(y,m,0).getDate();
-
-      const counts = { positive:0, negative:0, neutral:0 };
-      monthData.forEach(e=> counts[getEmotionType(e.emotion,e)]++);
-      document.getElementById('monthlyPositiveCount').textContent = counts.positive;
-      document.getElementById('monthlyNeutralCount').textContent = counts.neutral;
-      document.getElementById('monthlyNegativeCount').textContent = counts.negative;
-
-      renderChart('monthlyDistributionChart','doughnut',{
-        labels:['긍정','부정','중립'],
-        datasets:[{ data:Object.values(counts), backgroundColor:['#4CAF50','#F44336','#FFC107']}]
-      }, { responsive:true, maintainAspectRatio:false });
-
-      // 간단 추이(스택 예시 대신 placeholder)
-      const labels = Array.from({length:days},(_,i)=> i+1);
-      const dailyPos = labels.map(day=>{
-        const ds = monthData.filter(d=> d.date === `${monthString}-${String(day).padStart(2,'0')}`);
-        return ds.filter(d=> getEmotionType(d.emotion,d)==='positive').length;
-      });
-      const dailyNeu = labels.map(day=>{
-        const ds = monthData.filter(d=> d.date === `${monthString}-${String(day).padStart(2,'0')}`);
-        return ds.filter(d=> getEmotionType(d.emotion,d)==='neutral').length;
-      });
-      const dailyNeg = labels.map(day=>{
-        const ds = monthData.filter(d=> d.date === `${monthString}-${String(day).padStart(2,'0')}`);
-        return ds.filter(d=> getEmotionType(d.emotion,d)==='negative').length;
-      });
-
-      renderChart('monthlyTrendChart','bar',{
-        labels,
-        datasets:[
-          { label:'긍정', data:dailyPos, backgroundColor:'#4CAF50' },
-          { label:'중립', data:dailyNeu, backgroundColor:'#FFC107' },
-          { label:'부정', data:dailyNeg, backgroundColor:'#F44336' }
-        ]
-      }, { responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } });
-    }
-
-    function renderStudentListForDashboard(){
-      const box = document.getElementById('studentReportLinks'); if (!box) return;
-      box.innerHTML = '';
-      const selectedDate = document.getElementById('dashboardDate').value;
-      const submitted = getAllData().filter(d=> d.date===selectedDate).map(d=> d.studentNumber);
-      STUDENT_NUMBERS.sort((a,b)=> parseInt(a)-parseInt(b)).forEach(num=>{
-        const ok = submitted.includes(num);
-        const cls = ok ? 'bg-blue-200 hover:bg-blue-300 text-blue-800' : 'bg-gray-100 hover:bg-gray-200 text-gray-700';
-        box.innerHTML += `<button onclick="renderStudentReport('${num}', true)" class="${cls} font-medium py-2 px-3 rounded-lg transition">${num}번</button>`;
-      });
-    }
-
-    async function refreshDashboardData(){
-      const ok = await syncDataFromGAS(true);
-      if (ok){ renderTeacherDashboard(); showToast('대시보드가 최신 기록으로 새로고침되었습니다.'); }
-    }
-
-    async function renderTeacherNotes(){
-      const list = document.getElementById('notesList');
-      const err = document.getElementById('notesLoadingError');
-      list.innerHTML = '<div class="text-center py-10"><div class="loader mx-auto"></div><p class="text-gray-600 mt-4">쪽지 불러오는 중...</p></div>';
-      err.classList.add('hidden');
-      try{
-        const res = await fetch(GAS_URL + '?action=readNotes', { mode:'cors' });
-        const result = await res.json();
-        if (res.ok && Array.isArray(result)){
-          list.innerHTML = '';
-          if (!result.length){
-            list.innerHTML = '<p class="text-gray-500 text-center py-10">도착한 쪽지가 없습니다.</p>'; return;
-          }
-          result.slice().reverse().forEach(note=>{
-            const ts = new Date(note.timestamp).toLocaleString('ko-KR',{year:'2-digit',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
-            list.innerHTML += `
-              <div class="bg-gray-50 p-4 rounded-xl shadow-md border border-gray-200">
-                <div class="flex justify-between items-start mb-2 border-b pb-2">
-                  <span class="font-bold text-lg text-gray-800">💌 ${note.name}번 학생</span>
-                  <span class="text-xs text-gray-500">${ts}</span>
-                </div>
-                <p class="text-gray-700 whitespace-pre-wrap">${note.content}</p>
-              </div>`;
-          });
-        } else {
-          list.innerHTML=''; err.classList.remove('hidden');
-        }
-      } catch {
-        list.innerHTML=''; err.classList.remove('hidden'); err.textContent='서버 통신 오류: 쪽지를 불러올 수 없습니다.';
-      }
-    }
-
-    /* =========================
-       학생 리포트 (제목에 월 표시 고정)
-       ========================= */
-    async function renderStudentReportContent(containerSelector, studentNumber, monthString) {
-      const container = document.querySelector(containerSelector);
-      if (!container) {
-        console.error("Container not found:", containerSelector);
-        return;
-      }
-
-      // ✅ 월 기본값 자동 설정
-      const today = new Date();
-      if (!monthString) {
-        monthString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-      }
-
-      const studentAll = getAllData().filter(d => d.studentNumber === studentNumber);
-      const studentMonth = studentAll.filter(d => d.date.startsWith(monthString));
-
-      const [year, month] = monthString.split('-').map(Number);
-      const monthTitle = `${year}년 ${month}월`;
-      const monthLabel = `${month}월`;
-
-      // ✅ 제목 자동 업데이트
-      const candyJarTitle = container.querySelector('#candyJarTitle');
-      const monthlyRecordsTitle = container.querySelector('#monthlyRecordsTitle');
-      const emotionTitleEl = container.querySelector('#myEmotionTitle');
-      const trendTitleEl = container.querySelector('#myTrendTitle');
-
-      if (candyJarTitle) candyJarTitle.textContent = `🍬 감정 사탕 병 (${monthTitle})`;
-      if (monthlyRecordsTitle) monthlyRecordsTitle.textContent = `${monthTitle}의 전체 기록`;
-      if (emotionTitleEl) emotionTitleEl.textContent = `${monthLabel}의 감정분포`;
-      if (trendTitleEl)  trendTitleEl.textContent  = `${monthLabel}의 감정변화`;
-
-      // ✅ 통계 계산
-      const totalMonthRecords = studentMonth.length;
-      const counts = { positive: 0, negative: 0, neutral: 0 };
-      studentMonth.forEach(e => counts[getEmotionType(e.emotion, e)]++);
-
-      container.querySelector('#myTotalRecords').textContent = totalMonthRecords;
-      container.querySelector('#myPositiveCount').textContent = counts.positive;
-      container.querySelector('#myNeutralCount').textContent = counts.neutral;
-      container.querySelector('#myNegativeCount').textContent = counts.negative;
-
-      // ✅ 감정 분포 차트
-      renderChart(container.querySelector('#myEmotionChart'), 'doughnut', {
-        labels: ['긍정', '부정', '중립'],
-        datasets: [{
-          data: Object.values(counts),
-          backgroundColor: ['#4CAF50', '#F44336', '#FFC107']
-        }]
-      }, { responsive: true, maintainAspectRatio: false });
-
-      // ✅ 감정 변화 (라인 그래프)
-      const daysInMonth = new Date(year, month, 0).getDate();
-      const dailyTrends = Array.from({ length: daysInMonth }, (_, i) => {
-        const dayStr = `${monthString}-${String(i + 1).padStart(2, '0')}`;
-        const dayData = studentMonth.find(d => d.date === dayStr);
-        if (!dayData) return null;
-        const c = getEmotionType(dayData.emotion, dayData);
-        if (c === 'positive') return 1;
-        if (c === 'negative') return -1;
-        return 0;
-      });
-
-      renderChart(container.querySelector('#myTrendChart'), 'line', {
-        labels: Array.from({ length: daysInMonth }, (_, i) => i + 1),
-        datasets: [{
-          label: '감정 변화',
-          data: dailyTrends,
-          borderColor: '#667eea',
-          backgroundColor: '#667eea20',
-          fill: true,
-          tension: 0.1,
-          spanGaps: true
-        }]
-      }, {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: { title: { display: true, text: `${month}월` } },
-          y: {
-            min: -1.5,
-            max: 1.5,
-            ticks: {
-              callback: v => v === 1 ? '긍정' : v === 0 ? '중립' : v === -1 ? '부정' : ''
-            }
-          }
-        }
-      });
-
-      // ✅ 자주 느낀 감정 TOP5
-      const topBox = container.querySelector('#myTopEmotions');
-      topBox.innerHTML = '';
-      const emoCounts = studentMonth.reduce((acc, c) => {
-        acc[c.emotion] = (acc[c.emotion] || 0) + 1;
-        return acc;
-      }, {});
-      const sorted = Object.entries(emoCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-      if (sorted.length) {
-        sorted.forEach(([emo, count], i) => {
-          const emoji = (studentAll.find(d => d.emotion === emo)?.emoji) || DEFAULT_EMOJIS[getEmotionType(emo)];
-          topBox.innerHTML += `
-            <div class="flex items-center justify-between text-gray-700 border-b pb-2">
-              <span>${i + 1}. ${emoji} ${emo}</span>
-              <span class="font-bold">${count}회</span>
-            </div>`;
-        });
-      } else {
-        topBox.innerHTML = '<p class="text-gray-500">기록이 없습니다.</p>';
-      }
-
-      // ✅ 감정 사탕 병 표시 (툴팁 수정 반영)
-      const candyContainer = container.querySelector('#candyContainer');
-      candyContainer.innerHTML = '';
-      if (studentMonth.length) {
-        const jarW = 400 * 1.09, jarH = 500 * 1.09;
-        const candySize = 126;
-        const offX = (candyContainer.offsetWidth - jarW) / 2;
-        const offY = (candyContainer.offsetHeight - jarH) / 2;
-        const stackW = candySize * 0.7, maxPerRow = Math.floor((jarW * 0.8) / stackW);
-        const stackH = candySize * 0.3;
-
-        studentMonth.forEach((entry, idx) => {
-          const candy = document.createElement('div');
-          candy.className = 'w-28 h-28 rounded-full flex items-center justify-center text-7xl absolute falling-candy';
-          candy.textContent = entry.emoji;
-          candy.title = `${entry.date}: ${entry.emotion}`;
-
-          const row = Math.floor(idx / maxPerRow);
-          const col = idx % maxPerRow;
-          let bottom = offY + (row * stackH) + (Math.random() * 5 - 2.5);
-          let left = offX + (jarW * 0.1) + (col * stackW) + (row % 2 === 1 ? stackW / 2 : 0) + (Math.random() * 10 - 5);
-          if (left + candySize > offX + jarW * 0.9) left -= stackW / 2;
-
-          candy.style.left = `${left}px`;
-          candy.style.bottom = `${bottom}px`;
-          candy.style.animationDelay = `${idx * 0.15}s`;
-          candy.style.setProperty('--final-rotate', `${Math.random() * 360}deg`);
-
-          candy.onmouseenter = (e) => {
-            const tip = getTooltip();
-            if (!tip) return;
-            tip.innerHTML = `<strong>${entry.date}</strong><br><span>${entry.emotion} ${entry.emoji}</span><br><span class="text-sm">${escapeHtml(entry.reason || '')}</span>`;
-            tip.classList.add('show');
-            const r = e.target.getBoundingClientRect();
-            tip.style.left = `${r.left + r.width / 2 - tip.offsetWidth / 2}px`;
-            tip.style.top  = `${r.top - tip.offsetHeight - 5}px`;
-          };
-          candy.onmouseleave = () => {
-            const tip = getTooltip();
-            if (tip) tip.classList.remove('show');
-          };
-
-          candyContainer.appendChild(candy);
-        });
-      } else {
-        candyContainer.innerHTML = '<p class="text-gray-500">선택한 달에 기록된 감정 사탕이 없습니다.</p>';
-      }
-
-      // ✅ 해당 달 기록 목록
-      const rec = container.querySelector('#myRecentRecords');
-      rec.innerHTML = '';
-      if (studentMonth.length) {
-        studentMonth
-          .slice()
-          .sort((a, b) => b.date.localeCompare(a.date))
-          .forEach(e => {
-            rec.innerHTML += `
-              <div class="bg-gray-50 p-4 rounded-2xl shadow-sm border-l-4 ${
-                e.category === 'positive'
-                  ? 'border-green-500'
-                  : e.category === 'negative'
-                  ? 'border-red-500'
-                  : 'border-gray-500'
-              }">
-                <p class="text-semibold text-gray-800 font-semibold">${e.date} &middot; ${e.emotion} ${e.emoji}</p>
-                <p class="text-sm text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(e.reason || '')}</p>
-              </div>`;
-          });
-      } else {
-        rec.innerHTML = '<p class="text-gray-500">선택한 달의 기록이 없습니다.</p>';
-      }
-    }
-
-    function renderStudentReport(studentNumber, isTeacherView=true){
-      currentStudentForReport = studentNumber;
-      showPage('studentReportPage');
-
-      document.getElementById('studentReportNumber').textContent = `${studentNumber}번 학생의 리포트`;
-
-      const monthPicker = document.getElementById('studentReportMonth');
-      if (!monthPicker.dataset.listenerAttached){
-        monthPicker.addEventListener('change', ()=> renderStudentReport(studentNumber, isTeacherView));
-        monthPicker.dataset.listenerAttached = 'true';
-      }
-      const today = new Date();
-      const defMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
-      monthPicker.value = monthPicker.value || defMonth;
-      const selectedMonth = monthPicker.value;
-
-      document.getElementById('dashboardButton').classList.toggle('hidden', !isTeacherView);
-      document.getElementById('mainPageButton').classList.toggle('hidden', isTeacherView);
-
-      renderStudentReportContent('#studentReportPage', studentNumber, selectedMonth);
-
-      const adviceBox = document.getElementById('aiAdvice');
-      const adviceBtn = document.getElementById('generateAdviceBtn');
-      const adviceContainer = document.querySelector('#studentReportPage > .max-w-4xl > .bg-white.rounded-2xl.shadow-lg.p-6.mb-6:last-child');
-      if (adviceContainer){
-        if (isTeacherView){
-          adviceContainer.classList.add('hidden');
-        } else {
-          adviceContainer.classList.remove('hidden');
-          if (adviceBox) adviceBox.innerHTML = '<p class="text-sm text-gray-500">버튼을 눌러 선생님의 격려 메시지를 생성해 보세요.</p>';
-          if (adviceBtn){ adviceBtn.disabled = false; adviceBtn.textContent = '조언 생성하기'; }
-        }
-      }
-    }
-
-/* === 조언 생성 함수 (완전 수정본) === */
     async function fetchAIAdvice() {
-      console.log("조언 생성 버튼 클릭됨");
       const studentNumber = currentStudentForReport;
-
-      if (!studentNumber) {
-        return showToast('학생 번호가 선택되지 않았습니다.');
-      }
+      if (!studentNumber) return showToast('학생 번호가 선택되지 않았습니다.');
 
       const btn = document.getElementById('generateAdviceBtn');
       const el = document.getElementById('aiAdvice');
-
-      btn.disabled = true;
-      btn.textContent = '조언 분석 중...';
-      el.innerHTML = '<div class="loader mx-auto"></div><p class="text-center text-purple-700 mt-2">학생의 기록을 분석하고 있습니다...</p>';
+      btn.disabled = true; btn.textContent = '분석 중...';
+      el.innerHTML = '<div class="loader mx-auto"></div>';
 
       const data = getAllData().filter(d => d.studentNumber === studentNumber);
       if (!data.length) {
-        el.innerHTML = '<p class="text-red-600 font-semibold">기록이 없어 조언을 생성할 수 없습니다.</p>';
-        btn.disabled = false;
-        btn.textContent = '조언 생성하기';
+        el.innerHTML = "기록이 없어 조언을 생성할 수 없습니다.";
+        btn.disabled = false; btn.textContent = '조언 생성하기';
         return;
       }
 
-      const recent5 = data.slice(-5).map(e => `[${e.date} ${e.emotion}] ${e.reason}`).join('\n');
-      const total = data.reduce((acc, c) => {
-        const type = getEmotionType(c.emotion, c);
-        acc[type]++;
-        return acc;
+      const recent5 = data.slice(-5).map(e => `[${e.date}] ${e.emotion}: ${e.reason}`).join('\n');
+      const prompt = `당신은 초등학교 담임 선생님입니다. 아래 학생의 최근 감정 기록을 보고 따뜻한 격려와 조언을 3문장 이내로 한국어로 작성해 주세요.\n\n학생 기록:\n${recent5}`;
+      
+      const advice = await callGeminiAPI(prompt);
+      el.innerHTML = advice ? `<p class="whitespace-pre-wrap">${advice}</p>` : '<p class="text-red-500">조언 생성에 실패했습니다. 다시 시도해 주세요.</p>';
+      btn.disabled = false; btn.textContent = '조언 다시 생성하기';
+    }
+    window.fetchAIAdvice = fetchAIAdvice;
+
+    /* =========================
+       친구들 감정 (둥둥 떠다니는 이모티콘)
+       ========================= */
+    function renderFloatingEmotions() {
+      const container = document.getElementById('floatingEmotions');
+      container.innerHTML = '';
+      const todaysData = getAllData().filter(d => d.date === getTodayDateString());
+
+      if (todaysData.length === 0) {
+        container.innerHTML = '<div class="text-center text-gray-500 py-20">아직 일기를 쓴 친구가 없어요.</div>';
+        return;
+      }
+
+      const cw = container.clientWidth || 600, ch = container.clientHeight || 320;
+      todaysData.forEach(entry => {
+        const el = document.createElement('div');
+        el.className = 'floating-emotion';
+        el.textContent = entry.emoji || '🙂';
+        el.style.left = Math.random() * (cw - 50) + 'px';
+        el.style.top = Math.random() * (ch - 50) + 'px';
+        el.style.animationDelay = (Math.random() * 5) + 's';
+
+        el.onmouseenter = (e) => {
+          const tip = getTooltip();
+          tip.innerHTML = `<strong>${entry.studentNumber}번 (${entry.emotion})</strong><br><span class="text-sm">${escapeHtml(entry.reason)}</span>`;
+          tip.classList.add('show');
+          tip.style.left = e.pageX + 'px'; tip.style.top = (e.pageY - 80) + 'px';
+        };
+        el.onmouseleave = () => getTooltip().classList.remove('show');
+        container.appendChild(el);
+      });
+    }
+
+    /* =========================
+       차트 렌더링
+       ========================= */
+    function renderChart(canvasId, type, data, options){
+      const el = document.getElementById(canvasId);
+      if (!el) return;
+      const ctx = el.getContext('2d');
+      if (chartInstances[canvasId]) chartInstances[canvasId].destroy();
+      chartInstances[canvasId] = new Chart(ctx, { type, data, options });
+    }
+
+    /* =========================
+       학생 리포트 및 사탕 병
+       ========================= */
+    function renderStudentReport(num, isTeacher=true){
+      currentStudentForReport = String(num);
+      showPage('studentReportPage');
+      document.getElementById('studentReportNumber').textContent = `${num}번 학생의 리포트`;
+
+      const monthPicker = document.getElementById('studentReportMonth');
+      const monthString = monthPicker.value || getTodayDateString().substring(0, 7);
+      
+      const allData = getAllData().filter(d => d.studentNumber === String(num));
+      const monthData = allData.filter(d => d.date.startsWith(monthString));
+
+      // 통계 업데이트
+      document.getElementById('myTotalRecords').textContent = monthData.length;
+      const counts = monthData.reduce((acc, curr) => {
+        acc[getEmotionType(curr.emotion, curr)]++; return acc;
       }, { positive: 0, negative: 0, neutral: 0 });
 
-      // 프롬프트 내용을 따옴표(` `) 안에 정확히 가두었습니다.
-      const prompt = `당신은 초등학생의 담임 선생님입니다. 아래 정보를 바탕으로 학생에게 격려가 되는 짧은 조언을 3문장 이내로 작성해 주세요.
-      
-<학생 감정 통계>
-- 전체 기록: ${data.length}건
-- 긍정: ${total.positive}회, 부정: ${total.negative}회, 중립: ${total.neutral}회
+      document.getElementById('myPositiveCount').textContent = counts.positive;
+      document.getElementById('myNeutralCount').textContent = counts.neutral;
+      document.getElementById('myNegativeCount').textContent = counts.negative;
 
-<최근 5일간의 기록>
-${recent5}
+      // 차트
+      renderChart('myEmotionChart', 'doughnut', {
+        labels: ['긍정', '부정', '중립'],
+        datasets: [{ data: Object.values(counts), backgroundColor: ['#4CAF50', '#F44336', '#FFC107'] }]
+      }, { responsive: true, maintainAspectRatio: false });
 
-선생님의 조언:`;
+      // 사탕 병 그리기 (Candy Jar)
+      const candyContainer = document.getElementById('candyContainer');
+      candyContainer.innerHTML = '';
+      monthData.forEach((entry, idx) => {
+        const candy = document.createElement('div');
+        candy.className = 'w-24 h-24 rounded-full flex items-center justify-center text-6xl absolute falling-candy';
+        candy.textContent = entry.emoji;
+        candy.style.left = (20 + (idx % 4) * 20) + '%';
+        candy.style.bottom = (10 + Math.floor(idx / 4) * 15) + '%';
+        candy.style.animationDelay = (idx * 0.1) + 's';
+        candy.style.setProperty('--final-rotate', (Math.random() * 40 - 20) + 'deg');
+        candyContainer.appendChild(candy);
+      });
 
-      try {
-        const advice = await callGeminiAPI(prompt);
-        if (advice) {
-          el.innerHTML = `<p class="whitespace-pre-wrap">${advice}</p>`;
-        } else {
-          el.innerHTML = '<p class="text-red-600 font-semibold">AI 조언 생성에 실패했습니다. API 설정을 확인해주세요.</p>';
-        }
-      } catch (err) {
-        console.error("조언 생성 중 오류:", err);
-        el.innerHTML = '<p class="text-red-600 font-semibold">오류가 발생했습니다. 다시 시도해주세요.</p>';
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '조언 다시 생성하기';
-      }
+      // 기록 목록
+      const rec = document.getElementById('myRecentRecords');
+      rec.innerHTML = monthData.map(e => `
+        <div class="bg-gray-50 p-4 rounded-xl border-l-4 ${e.category==='positive'?'border-green-500':'border-red-500'}">
+          <strong>${e.date} &middot; ${e.emotion} ${e.emoji}</strong>
+          <p class="text-sm mt-1">${escapeHtml(e.reason)}</p>
+        </div>`).join('') || '<p class="text-gray-400">이번 달 기록이 없습니다.</p>';
     }
-      
+    window.renderStudentReport = renderStudentReport;
+
     /* =========================
-       학생 로그인
+       교사 대시보드
        ========================= */
-    function handleStudentLogin(e) {
-      e.preventDefault();
-      const num = document.getElementById('studentLoginNumber').value;
-      const pw = document.getElementById('studentLoginPassword').value;
-      const err = document.getElementById('studentLoginError');
-      if (!num || !pw) {
-        err.textContent = '번호와 비밀번호를 모두 입력해주세요.';
-        err.classList.remove('hidden');
-        return;
-      }
+    function renderTeacherDashboard(){
+      const date = document.getElementById('dashboardDate').value || getTodayDateString();
+      const daily = getAllData().filter(d => d.date === date);
+      document.getElementById('todaySubmissionCount').textContent = `${daily.length} / ${STUDENT_NUMBERS.length}`;
+      
+      const list = document.getElementById('dailyEntriesList');
+      list.innerHTML = daily.map(e => `
+        <div class="border-b pb-2">
+          <p class="font-bold">${e.studentNumber}번: ${e.emotion} ${e.emoji}</p>
+          <p class="text-sm text-gray-600">${escapeHtml(e.reason)}</p>
+        </div>`).join('') || '<p>기록이 없습니다.</p>';
 
-      const SECRET = 572, MULT = 17;
-      const expected = ((Number(num) * MULT) + SECRET).toString().slice(-4).padStart(4, '0');
-      if (pw === expected) {
-        err.classList.add('hidden');
-        document.getElementById('studentLoginForm').reset();
-        renderStudentReport(num, false);
-      } else {
-        err.textContent = '번호 또는 비밀번호가 올바르지 않습니다.';
-        err.classList.remove('hidden');
-      }
+      const box = document.getElementById('studentReportLinks');
+      box.innerHTML = STUDENT_NUMBERS.map(num => {
+        const hasData = daily.some(d => d.studentNumber === num);
+        return `<button onclick="renderStudentReport('${num}', true)" class="p-2 rounded ${hasData?'bg-blue-100':'bg-gray-100'}">${num}번</button>`;
+      }).join('');
     }
-  </script>
 
+    function switchDashboardTab(tab){
+      ['daily', 'monthly', 'notes'].forEach(t => {
+        document.getElementById(`${t}ReportContent`).classList.add('hidden');
+        document.getElementById(`${t}Tab`).classList.remove('active');
+      });
+      document.getElementById(`${tab}ReportContent`).classList.remove('hidden');
+      document.getElementById(`${tab}Tab`).classList.add('active');
+      if(tab === 'notes') renderTeacherNotes();
+    }
+    window.switchDashboardTab = switchDashboardTab;
+
+    async function renderTeacherNotes(){
+      const list = document.getElementById('notesList');
+      list.innerHTML = '불러오는 중...';
+      try {
+        const res = await fetch(GAS_URL + '?action=readNotes');
+        const notes = await res.json();
+        list.innerHTML = notes.reverse().map(n => `
+          <div class="bg-gray-50 p-4 rounded-xl mb-2">
+            <strong>${n.name}번 학생</strong> <small>${new Date(n.timestamp).toLocaleString()}</small>
+            <p>${escapeHtml(n.content)}</p>
+          </div>`).join('') || '쪽지가 없습니다.';
+      } catch (e) { list.innerHTML = '오류 발생'; }
+    }
+
+    /* =========================
+       초기화 및 이벤트 리스너
+       ========================= */
+    document.addEventListener('DOMContentLoaded', async () => {
+      document.getElementById('currentDate').textContent = getTodayDateString();
+      await syncDataFromGAS();
+      showPage('mainPage');
+
+      document.getElementById('studentLoginForm').onsubmit = (e) => {
+        e.preventDefault();
+        const num = document.getElementById('studentLoginNumber').value;
+        const pw = document.getElementById('studentLoginPassword').value;
+        if (pw === ((Number(num)*17)+572).toString().slice(-4).padStart(4,'0')) renderStudentReport(num, false);
+        else showToast('비밀번호가 틀렸습니다.');
+      };
+
+      document.getElementById('teacherLoginForm').onsubmit = (e) => {
+        e.preventDefault();
+        if (document.getElementById('teacherPassword').value === TEACHER_PASSWORD) showPage('teacherDashboard');
+        else showToast('선생님 비밀번호가 아닙니다.');
+      };
+    });
+  </script>
 </head>
 
 <body class="bg-gradient-to-br from-blue-50 to-purple-50 min-h-screen">
   <div id="appContainer">
-    <!-- 메인 -->
     <div id="mainPage" class="container mx-auto px-4 pt-24 pb-16">
       <div class="text-center mb-12 fade-in">
         <h1 class="text-4xl font-bold text-gray-800 mb-4">📝 우리반 감정일기</h1>
         <p class="text-lg text-gray-600">매일매일 내 마음을 기록해보세요</p>
-        <div class="text-sm text-gray-500 mt-2" id="currentDate"></div>
+        <div id="currentDate" class="text-sm text-gray-500 mt-2"></div>
       </div>
-
       <div class="max-w-md mx-auto space-y-6">
-        <button onclick="showPage('studentPage')" class="w-full bg-gradient-to-r from-blue-100 to-indigo-100 hover:from-blue-200 hover:to-indigo-200 text-indigo-700 font-semibold py-6 px-8 rounded-2xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200">
-          <div class="text-3xl mb-2">🧸</div>
-          <div class="text-xl">학생용</div>
-          <div class="text-sm opacity-90 mt-1">감정일기 작성하기</div>
-        </button>
-
-        <button onclick="showPage('friendsPage')" class="w-full bg-gradient-to-r from-green-100 to-emerald-100 hover:from-green-200 hover:to-emerald-200 text-green-800 font-semibold py-6 px-8 rounded-2xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200">
-          <div class="text-3xl mb-2">👫</div>
-          <div class="text-xl">친구들 감정 확인하기</div>
-          <div class="text-sm opacity-90 mt-1">오늘 친구들의 기분은?</div>
-        </button>
+        <button onclick="showPage('studentPage')" class="w-full bg-blue-100 p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-indigo-700">🧸 학생용 일기쓰기</button>
+        <button onclick="showPage('friendsPage')" class="w-full bg-green-100 p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-green-700">👫 친구들 감정보기</button>
+        <button onclick="showPage('studentLogin')" class="w-full bg-indigo-100 p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-blue-700">📊 내 감정 리포트</button>
+        <button onclick="showPage('noteToTeacherPage')" class="w-full bg-yellow-100 p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-yellow-700">💌 선생님께 쪽지</button>
       </div>
-
-      <p class="text-center text-sm text-gray-500 mt-20">made by 해솔초 심쌤 💜 오색칠반</p>
-
-      <button onclick="showPage('studentLogin')" class="fixed bottom-40 right-6 bg-gradient-to-br from-blue-300 to-indigo-400 text-white w-16 h-16 rounded-full shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-200 z-50 flex items-center justify-center">
-        <div class="text-2xl">📊</div>
-      </button>
-
-      <button onclick="showPage('noteToTeacherPage')" class="fixed right-6 bg-gradient-to-br from-yellow-200 to-gray-300 text-gray-700 w-16 h-16 rounded-full shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-200 z-50 flex items-center justify-center" style="bottom: 92px;">
-        <div class="text-2xl">💌</div>
-      </button>
-
-      <button onclick="showPage('teacherLogin')" class="fixed bottom-6 right-6 bg-gradient-to-br from-purple-300 to-pink-400 text-white w-16 h-16 rounded-full shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-200 z-50 flex items-center justify-center">
-        <div class="text-2xl">👩‍🏫</div>
-      </button>
+      <button onclick="showPage('teacherLogin')" class="fixed bottom-6 right-6 bg-purple-400 text-white w-12 h-12 rounded-full shadow-lg">👩‍🏫</button>
     </div>
 
-    <!-- 학생 작성 -->
     <div id="studentPage" class="hidden container mx-auto px-4 py-8">
-      <div class="max-w-2xl mx-auto">
-        <div class="bg-white rounded-3xl shadow-xl p-8 fade-in">
-          <div class="flex items-center justify-between mb-8">
-            <h2 class="text-3xl font-bold text-gray-800">📝 감정일기 작성</h2>
-            <button onclick="showPage('mainPage')" class="text-gray-500 hover:text-gray-700 text-2xl">✕</button>
+      <div class="max-w-2xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
+        <div class="flex justify-between mb-8"><h2 class="text-2xl font-bold">📝 일기 쓰기</h2><button onclick="showPage('mainPage')">✕</button></div>
+        <form id="emotionForm" class="space-y-6">
+          <select id="studentNumber" required class="w-full p-3 border rounded-xl"></select>
+          <div>
+            <h4 class="font-bold text-green-600 mb-2">🌿 긍정</h4><div id="positiveEmotions" class="grid grid-cols-5 gap-2 mb-4"></div>
+            <h4 class="font-bold text-red-600 mb-2">🌧 부정</h4><div id="negativeEmotions" class="grid grid-cols-5 gap-2 mb-4"></div>
+            <h4 class="font-bold text-gray-600 mb-2">🌗 중립</h4><div id="neutralEmotions" class="grid grid-cols-5 gap-2"></div>
           </div>
-
-          <form id="emotionForm" class="space-y-6">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">번호</label>
-              <select id="studentNumber" required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white">
-                <option value="">번호 선택</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-4">오늘의 감정</label>
-
-              <div class="mb-6">
-                <h4 class="text-sm font-semibold text-green-700 mb-3 flex items-center"><span class="mr-2">🌿</span>긍정적인 감정</h4>
-                <div id="positiveEmotions" class="grid grid-cols-5 gap-2"></div>
-              </div>
-              <div class="mb-6">
-                <h4 class="text-sm font-semibold text-red-700 mb-3 flex items-center"><span class="mr-2">🌧</span>부정적인 감정</h4>
-                <div id="negativeEmotions" class="grid grid-cols-5 gap-2"></div>
-              </div>
-              <div class="mb-6">
-                <h4 class="text-sm font-semibold text-gray-700 mb-3 flex items-center"><span class="mr-2">🌗</span>중립·복합 감정</h4>
-                <div id="neutralEmotions" class="grid grid-cols-5 gap-2"></div>
-              </div>
-
-              <div class="mb-4">
-                <button type="button" onclick="showCustomEmotionInput()" class="w-full bg-blue-50 hover:bg-blue-100 border-2 border-dashed border-blue-300 text-blue-700 font-medium py-3 px-4 rounded-xl transition-all duration-200">
-                  ✏️ 직접 입력하기
-                </button>
-              </div>
-              <div id="customEmotionContainer" class="hidden mb-4">
-                <div class="flex gap-2">
-                  <input type="text" id="customEmotionInput" placeholder="감정을 입력하세요 (예: 신남)" class="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500">
-                  <button type="button" onclick="handleCustomEmotion()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-xl">확인</button>
-                  <button type="button" onclick="hideCustomEmotionInput()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-3 rounded-xl">취소</button>
-                </div>
-              </div>
-
-              <input type="hidden" id="selectedEmotion" required>
-              <input type="hidden" id="selectedEmoji" required>
-              <input type="hidden" id="selectedCategory">
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">감정의 이유</label>
-              <textarea id="emotionReason" rows="4" required placeholder="오늘 이런 감정을 느낀 이유를 자세히 적어주세요..." class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
-            </div>
-
-            <div class="space-y-3">
-              <button type="submit" class="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 text-white font-semibold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200">💾 감정일기 저장하기</button>
-            </div>
-          </form>
-        </div>
+          <textarea id="emotionReason" required class="w-full p-3 border rounded-xl" placeholder="이유를 적어주세요..."></textarea>
+          <input type="hidden" id="selectedEmotion"><input type="hidden" id="selectedEmoji"><input type="hidden" id="selectedCategory">
+          <button type="submit" class="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold">💾 저장하기</button>
+        </form>
       </div>
     </div>
 
-    <!-- 쪽지 보내기 -->
-    <div id="noteToTeacherPage" class="hidden container mx-auto px-4 py-8">
-      <div class="max-w-2xl mx-auto">
-        <div class="bg-white rounded-3xl shadow-xl p-8 fade-in">
-          <div class="flex items-center justify-between mb-8">
-            <h2 class="text-3xl font-bold text-gray-800">💌 선생님께 쪽지 보내기</h2>
-            <button onclick="showPage('mainPage')" class="text-gray-500 hover:text-gray-700 text-2xl">✕</button>
-          </div>
-          <p class="text-gray-600 mb-6">선생님께 하고 싶은 이야기, 비밀스러운 고민 등을 적어주세요. 선생님만 볼 수 있어요!</p>
-
-          <form id="noteForm" class="space-y-6">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">번호</label>
-              <select id="noteStudentNumber" required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent bg-white">
-                <option value="">번호 선택</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">쪽지 내용</label>
-              <textarea id="noteContent" rows="6" required placeholder="선생님께 전할 쪽지 내용을 작성해주세요..." class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 resize-none"></textarea>
-            </div>
-
-            <div class="space-y-3">
-              <button type="submit" class="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 text-white font-semibold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200">💌 쪽지 전송하기</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <!-- 친구들 감정 -->
     <div id="friendsPage" class="hidden container mx-auto px-4 py-8">
-      <div class="max-w-4xl mx-auto">
-        <div class="bg-white rounded-3xl shadow-XL p-8 fade-in shadow-xl">
-          <div class="flex items-center justify-between mb-8">
-            <h2 class="text-3xl font-bold text-gray-800">👫 친구들 감정 확인하기</h2>
-            <button onclick="showPage('mainPage')" class="text-gray-500 hover:text-gray-700 text-2xl">✕</button>
-          </div>
-          <div class="relative bg-gradient-to-br from-blue-100 to-purple-100 rounded-3xl p-8 min-h-[24rem] overflow-hidden">
-            <div class="text-center mb-6">
-              <h3 class="text-xl font-bold text-gray-800">🌈 우리반 친구들의 감정</h3>
-              <p class="text-sm text-gray-600 mt-2">이모티콘을 터치해보세요!</p>
-            </div>
-            <div id="floatingEmotions" class="relative w-full h-80"></div>
-          </div>
-        </div>
-      </div>
+       <div class="max-w-4xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
+         <div class="flex justify-between mb-8"><h2 class="text-2xl font-bold">👫 친구들 감정</h2><button onclick="showPage('mainPage')">✕</button></div>
+         <div id="floatingEmotions" class="relative w-full h-96 bg-blue-50 rounded-2xl overflow-hidden"></div>
+       </div>
     </div>
 
-    <!-- 학생 로그인 -->
-    <div id="studentLogin" class="hidden container mx-auto px-4 py-8">
-      <div class="flex items-center justify-center min-h-screen">
-        <div class="max-w-md w-full">
-          <div class="bg-white rounded-3xl shadow-xl p-8 fade-in">
-            <div class="flex items-center justify-between mb-8">
-              <h2 class="text-2xl font-bold text-gray-800">📊 내 감정 리포트</h2>
-              <button onclick="showPage('mainPage')" class="text-gray-500 hover:text-gray-700 text-2xl">✕</button>
-            </div>
-            <form id="studentLoginForm" class="space-y-6">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">번호</label>
-                <select id="studentLoginNumber" required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white">
-                  <option value="">번호 선택</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">비밀번호 (4자리)</label>
-                <input type="password" id="studentLoginPassword" required maxlength="4" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" placeholder="선생님께 받은 4자리 숫자">
-              </div>
-              <button type="submit" class="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 text-white font-semibold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition">로그인</button>
-            </form>
-            <div id="studentLoginError" class="hidden mt-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-xl text-sm text-center">번호 또는 비밀번호가 올바르지 않습니다.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 교사 로그인 -->
-    <div id="teacherLogin" class="hidden container mx-auto px-4 py-8">
-      <div class="flex items-center justify-center min-h-screen">
-        <div class="max-w-md w-full">
-          <div class="bg-white rounded-3xl shadow-xl p-8 fade-in">
-            <div class="flex items-center justify-between mb-8">
-              <h2 class="text-2xl font-bold text-gray-800">🔐 교사 로그인</h2>
-              <button onclick="showPage('mainPage')" class="text-gray-500 hover:text-gray-700 text-2xl">✕</button>
-            </div>
-            <form id="teacherLoginForm" class="space-y-6">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">비밀번호</label>
-                <input type="password" id="teacherPassword" required class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
-              </div>
-              <button type="submit" onclick="handleTeacherLogin(event)" class="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 text-white font-semibold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition">로그인</button>
-            </form>
-            <div id="loginError" class="hidden mt-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-xl text-sm text-center">비밀번호가 올바르지 않습니다.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 교사 대시보드 -->
-    <div id="teacherDashboard" class="hidden container mx-auto px-4 py-8">
-      <div class="max-w-7xl mx-auto">
-        <div class="flex flex-wrap justify-between items-center mb-6 gap-4">
-          <h1 class="text-3xl font-bold text-gray-800">👩‍🏫 교사 대시보드</h1>
-          <div class="flex items-center gap-4">
-            <input type="date" id="dashboardDate" class="px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <input type="month" id="dashboardMonth" class="hidden px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <button id="refreshDataBtn" onclick="refreshDashboardData()" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg text-sm">새로고침</button>
-            <button onclick="clearLocalCache()" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg text-sm">로컬 캐시 삭제</button>
-            <button onclick="logoutTeacher()" class="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg">로그아웃</button>
-          </div>
-        </div>
-
-        <div class="border-b border-gray-200 mb-6">
-          <nav class="-mb-px flex gap-4" aria-label="Tabs">
-            <button onclick="switchDashboardTab('daily')"   id="dailyTab"   class="tab-button whitespace-nowrap py-3 px-5 font-semibold text-gray-500 hover:text-indigo-600 border-b-2 border-transparent">일별 리포트</button>
-            <button onclick="switchDashboardTab('monthly')" id="monthlyTab" class="tab-button whitespace-nowrap py-3 px-5 font-semibold text-gray-500 hover:text-indigo-600 border-b-2 border-transparent">월별 리포트</button>
-            <button onclick="switchDashboardTab('notes')"   id="notesTab"   class="tab-button whitespace-nowrap py-3 px-5 font-semibold text-gray-500 hover:text-indigo-600 border-b-2 border-transparent">학생 쪽지함</button>
-          </nav>
-        </div>
-
-        <div id="dailyReportContent">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">기록한 학생</h3><p id="todaySubmissionCount" class="text-3xl font-bold text-blue-600"></p></div>
-            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">긍정 감정</h3><p id="todayPositiveCount" class="text-3xl font-bold text-green-600"></p></div>
-            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">부정 감정</h3><p id="todayNegativeCount" class="text-3xl font-bold text-red-600"></p></div>
-          </div>
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-              <h2 id="dailyDistributionTitle" class="text-xl font-bold mb-4"></h2>
-              <div class="chart-container"><canvas id="dailyDistributionChart"></canvas></div>
-            </div>
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-              <h2 id="dailyEntriesTitle" class="text-xl font-bold mb-4"></h2>
-              <div id="dailyEntriesList" class="space-y-4 max-h-96 overflow-y-auto"></div>
-            </div>
-          </div>
-
-          <div class="bg-white p-6 rounded-2xl shadow-lg mt-8">
-            <h2 class="text-xl font-bold mb-4">학생별 리포트 (학생 클릭하여 이동)</h2>
-            <div id="studentReportLinks" class="grid grid-cols-6 gap-2"></div>
-          </div>
-        </div>
-
-        <div id="monthlyReportContent" class="hidden">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">월 긍정 감정</h3><p id="monthlyPositiveCount" class="text-3xl font-bold text-green-600"></p></div>
-            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">월 중립 감정</h3><p id="monthlyNeutralCount" class="text-3xl font-bold text-yellow-600"></p></div>
-            <div class="bg-white p-6 rounded-2xl shadow-lg"><h3 class="font-bold text-gray-600">월 부정 감정</h3><p id="monthlyNegativeCount" class="text-3xl font-bold text-red-600"></p></div>
-          </div>
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-              <h2 class="text-xl font-bold mb-4">월별 감정 분포</h2>
-              <div class="chart-container"><canvas id="monthlyDistributionChart"></canvas></div>
-            </div>
-            <div class="bg-white p-6 rounded-2xl shadow-lg">
-              <h2 class="text-xl font-bold mb-4">일별 감정 추이</h2>
-              <div class="chart-container"><canvas id="monthlyTrendChart"></canvas></div>
-            </div>
-          </div>
-        </div>
-
-        <div id="notesContent" class="hidden">
-          <div class="bg-white p-6 rounded-2xl shadow-lg">
-            <h2 class="text-xl font-bold text-gray-800 mb-4">📮 도착한 쪽지 (최신순)</h2>
-            <div id="notesList" class="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-              <div class="text-center text-gray-500 py-10">로딩 중...</div>
-            </div>
-            <div id="notesLoadingError" class="hidden text-red-500 text-center mt-4">쪽지를 불러오지 못했습니다. 새로고침 해주세요.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 학생 리포트 -->
     <div id="studentReportPage" class="hidden container mx-auto px-4 py-8">
-      <div class="max-w-4xl mx-auto">
-        <div id="studentReportHeader">
-          <div class="flex flex-wrap justify-between items-center mb-8 gap-4">
-            <div>
-              <h1 class="text-3xl font-bold text-gray-800 mb-2">📊 학생 감정 리포트</h1>
-              <p id="studentReportNumber" class="text-xl text-gray-600"></p>
-            </div>
-            <div class="flex items-center gap-4">
-              <input type="month" id="studentReportMonth" class="px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <div id="reportActionButtons" class="flex gap-2">
-                <button id="dashboardButton" onclick="showPage('teacherDashboard')" class="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg">대시보드로</button>
-                <button id="mainPageButton" onclick="showPage('mainPage')" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg">메인으로</button>
-              </div>
-            </div>
-          </div>
+      <div class="max-w-4xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
+        <div class="flex justify-between items-center mb-8">
+          <h2 id="studentReportNumber" class="text-2xl font-bold"></h2>
+          <input type="month" id="studentReportMonth" onchange="renderStudentReport(currentStudentForReport)" class="border p-2 rounded">
+          <button onclick="showPage('mainPage')">✕</button>
+        </div>
+        
+        <div class="grid grid-cols-4 gap-4 mb-8">
+          <div class="bg-blue-50 p-4 rounded-xl text-center"><div>총 기록</div><div id="myTotalRecords" class="text-2xl font-bold">0</div></div>
+          <div class="bg-green-50 p-4 rounded-xl text-center"><div>긍정</div><div id="myPositiveCount" class="text-2xl font-bold">0</div></div>
+          <div class="bg-yellow-50 p-4 rounded-xl text-center"><div>중립</div><div id="myNeutralCount" class="text-2xl font-bold">0</div></div>
+          <div class="bg-red-50 p-4 rounded-xl text-center"><div>부정</div><div id="myNegativeCount" class="text-2xl font-bold">0</div></div>
         </div>
 
-        <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div class="bg-blue-50 rounded-xl p-4 text-center">
-              <div class="text-sm text-gray-600">총 기록 수</div>
-              <div id="myTotalRecords" class="text-2xl font-bold text-blue-600">0</div>
-            </div>
-            <div class="bg-green-50 rounded-xl p-4 text-center">
-              <div class="text-sm text-gray-600">긍정</div>
-              <div id="myPositiveCount" class="text-2xl font-bold text-green-600">0</div>
-            </div>
-            <div class="bg-gray-100 rounded-xl p-4 text-center">
-              <div class="text-sm text-gray-600">중립</div>
-              <div id="myNeutralCount" class="text-2xl font-bold text-gray-600">0</div>
-            </div>
-            <div class="bg-red-50 rounded-xl p-4 text-center">
-              <div class="text-sm text-gray-600">부정</div>
-              <div id="myNegativeCount" class="text-2xl font-bold text-red-600">0</div>
-            </div>
-          </div>
+        <div class="relative w-full h-[30rem] bg-gray-50 rounded-2xl mb-8 overflow-hidden">
+          <div class="absolute inset-0 bg-contain bg-no-repeat bg-center opacity-20" style="background-image:url('jar.png');"></div>
+          <div id="candyContainer" class="w-full h-full relative"></div>
         </div>
 
-        <div class="bg-white rounded-2xl shadow-lg p-6 mt-6">
-          <h3 id="candyJarTitle" class="text-xl font-bold text-gray-800 mb-6">🍬 선택한 달의 감정 보관함</h3>
-          <div class="relative w-full h-[45rem] flex items-center justify-center bg-gray-50 rounded-2xl p-4 overflow-hidden">
-            <!-- 유리병 이미지는 같은 폴더에 jar.png 파일이 있어야 합니다 -->
-            <div class="absolute inset-0 bg-contain bg-no-repeat bg-center" style="background-image:url('jar.png'); transform: scale(1.09);"></div>
-            <div id="candyContainer" class="w-full h-full relative overflow-hidden pt-10"></div>
-          </div>
+        <div class="grid grid-cols-2 gap-8 mb-8">
+          <div class="h-64"><canvas id="myEmotionChart"></canvas></div>
+          <div id="myRecentRecords" class="space-y-4 overflow-y-auto h-64"></div>
         </div>
 
-        <div class="bg-white rounded-2xl shadow-lg p-6 mt-6">
-          <h3 id="monthlyRecordsTitle" class="text-xl font-bold text-gray-800 mb-6">선택한 달의 전체 기록</h3>
-          <div id="myRecentRecords" class="space-y-4 max-h-96 overflow-y-auto"></div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 mt-6">
-          <div class="bg-white rounded-2xl shadow-lg p-6">
-            <h3 id="myEmotionTitle" class="text-xl font-bold text-gray-800 mb-4"></h3>
-            <div class="chart-container"><canvas id="myEmotionChart"></canvas></div>
-          </div>
-          <div class="bg-white rounded-2xl shadow-lg p-6">
-            <h3 id="myTrendTitle" class="text-xl font-bold text-gray-800 mb-4"></h3>
-            <div class="chart-container"><canvas id="myTrendChart"></canvas></div>
-          </div>
-        </div>
-
-        <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <h3 class="text-xl font-bold text-gray-800 mb-6">🏆 자주 느끼는 감정 TOP 5 (전체)</h3>
-          <div id="myTopEmotions" class="space-y-3"></div>
-        </div>
-
-        <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <h3 class="text-xl font-bold text-gray-800 mb-6">💖 선생님의 한 마디</h3>
-          <div class="mb-4">
-            <button id="generateAdviceBtn" onclick="fetchAIAdvice()" class="w-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-semibold py-3 px-5 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200">
-              조언 생성하기
-            </button>
-          </div>
-          <div id="aiAdvice" class="p-4 bg-purple-50 rounded-lg text-purple-800 min-h-[50px]">
-            <p class="text-sm text-gray-500">버튼을 눌러 선생님의 격려 메시지를 생성해 보세요.</p>
-          </div>
+        <div class="bg-purple-50 p-6 rounded-2xl">
+          <h3 class="font-bold mb-4">💖 선생님의 한 마디 (AI)</h3>
+          <button id="generateAdviceBtn" onclick="fetchAIAdvice()" class="bg-purple-600 text-white px-4 py-2 rounded-lg mb-4">조언 생성하기</button>
+          <div id="aiAdvice" class="bg-white p-4 rounded-xl min-h-[60px] italic shadow-inner"></div>
         </div>
       </div>
     </div>
 
-    <div id="sharedReportPage" class="hidden"></div>
-  </div>
+    <div id="teacherDashboard" class="hidden container mx-auto px-4 py-8">
+      <div class="max-w-6xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
+        <div class="flex justify-between mb-8">
+          <h2 class="text-3xl font-bold">👩‍🏫 교사 대시보드</h2>
+          <input type="date" id="dashboardDate" onchange="renderTeacherDashboard()" class="border p-2 rounded">
+          <button onclick="showPage('mainPage')">로그아웃</button>
+        </div>
+        <div class="flex gap-4 mb-6">
+          <button id="dailyTab" onclick="switchDashboardTab('daily')" class="tab-button active p-3 border-b-2">일별 리포트</button>
+          <button id="monthlyTab" onclick="switchDashboardTab('monthly')" class="tab-button p-3 border-b-2">월별 통계</button>
+          <button id="notesTab" onclick="switchDashboardTab('notes')" class="tab-button p-3 border-b-2">쪽지함</button>
+        </div>
+        <div id="dailyReportContent">
+          <div class="mb-4 font-bold">오늘 기록한 학생: <span id="todaySubmissionCount"></span></div>
+          <div id="dailyEntriesList" class="grid gap-4 mb-8"></div>
+          <div class="font-bold mb-2">학생 리포트 바로가기</div>
+          <div id="studentReportLinks" class="grid grid-cols-10 gap-2"></div>
+        </div>
+        <div id="monthlyReportContent" class="hidden">준비 중...</div>
+        <div id="notesContent" class="hidden"><div id="notesList" class="space-y-4"></div></div>
+      </div>
+    </div>
 
-  <!-- 모달/툴팁/토스트 -->
-  <div id="categoryModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1001]">
-    <div class="bg-white p-8 rounded-2xl shadow-xl text-center w-full max-w-sm m-4">
-      <h3 class="font-bold text-xl mb-4">이 감정은 어떤 종류인가요?</h3>
-      <p id="fallbackEmotionText" class="mb-6 text-gray-600"></p>
-      <div class="flex justify-center gap-3">
-        <button onclick="setCustomCategory('positive')" class="flex-1 bg-green-500 hover:bg-green-600 text-white px-4 py-3 rounded-lg font-semibold transition">긍정</button>
-        <button onclick="setCustomCategory('negative')" class="flex-1 bg-red-500 hover:bg-red-600 text-white px-4 py-3 rounded-lg font-semibold transition">부정</button>
-        <button onclick="setCustomCategory('neutral')" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white px-4 py-3 rounded-lg font-semibold transition">중립</button>
+    <div id="studentLogin" class="hidden container mx-auto px-4 py-20">
+      <div class="max-w-md mx-auto bg-white p-8 rounded-3xl shadow-xl">
+        <h2 class="text-2xl font-bold mb-6">📊 리포트 로그인</h2>
+        <form id="studentLoginForm" class="space-y-4">
+          <select id="studentLoginNumber" class="w-full p-3 border rounded-xl"></select>
+          <input type="password" id="studentLoginPassword" class="w-full p-3 border rounded-xl" placeholder="비밀번호 4자리">
+          <button type="submit" class="w-full bg-blue-600 text-white p-3 rounded-xl">확인</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="teacherLogin" class="hidden container mx-auto px-4 py-20">
+      <div class="max-w-md mx-auto bg-white p-8 rounded-3xl shadow-xl">
+        <h2 class="text-2xl font-bold mb-6">🔐 선생님 로그인</h2>
+        <form id="teacherLoginForm" class="space-y-4">
+          <input type="password" id="teacherPassword" class="w-full p-3 border rounded-xl" placeholder="선생님 비밀번호">
+          <button type="submit" class="w-full bg-purple-600 text-white p-3 rounded-xl">로그인</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="noteToTeacherPage" class="hidden container mx-auto px-4 py-8">
+      <div class="max-w-2xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
+        <div class="flex justify-between mb-8"><h2 class="text-2xl font-bold">💌 선생님께 쪽지</h2><button onclick="showPage('mainPage')">✕</button></div>
+        <form id="noteForm" class="space-y-4">
+          <select id="noteStudentNumber" class="w-full p-3 border rounded-xl"></select>
+          <textarea id="noteContent" class="w-full p-3 border rounded-xl h-40" placeholder="선생님만 보시는 쪽지입니다..."></textarea>
+          <button type="submit" class="w-full bg-yellow-500 text-white p-3 rounded-xl">쪽지 보내기</button>
+        </form>
       </div>
     </div>
   </div>
 
+  <div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 bg-yellow-400 text-gray-800 p-3 rounded-lg shadow-xl opacity-0 transition"></div>
   <div id="tooltip" class="tooltip"></div>
-  <div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 bg-yellow-400 text-gray-800 font-semibold py-3 px-6 rounded-lg shadow-xl transform transition-all duration-300 opacity-0"></div>
 </body>
 </html>
