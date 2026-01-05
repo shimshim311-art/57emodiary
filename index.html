@@ -1121,126 +1121,76 @@
       }
     }
 
- /* === 조언 생성 함수 (수정본) === */
-    async function fetchAIAdvice(){
-      console.log("조언 생성 버튼 클릭됨"); // 확인용
+/* === 조언 생성 함수 (정상 수정본) === */
+    async function fetchAIAdvice() {
+      console.log("조언 생성 시작");
       const studentNumber = currentStudentForReport;
-      
-      if (!studentNumber) {
-        console.warn("학생 번호가 없습니다.");
-        return showToast('학생 번호가 선택되지 않았습니다.');
-      }
+      if (!studentNumber) return showToast('학생 번호가 선택되지 않았습니다.');
 
       const btn = document.getElementById('generateAdviceBtn');
-      const el  = document.getElementById('aiAdvice');
-      
-      btn.disabled = true; 
+      const el = document.getElementById('aiAdvice');
+      btn.disabled = true;
       btn.textContent = '조언 분석 중...';
-      el.innerHTML = '<div class="loader mx-auto"></div><p class="text-center text-purple-700 mt-2">학생의 기록을 분석하고 있습니다...</p>';
+      el.innerHTML = '<div class="loader mx-auto"></div><p class="text-center text-purple-700 mt-2">학생의 기록을 분석 중입니다...</p>';
 
-      const data = getAllData().filter(d=> d.studentNumber===studentNumber);
-      if (!data.length){
-        el.innerHTML = '<p class="text-red-600 font-semibold">기록이 없어 조언을 생성할 수 없습니다.</p>';
-        btn.disabled=false; btn.textContent='조언 생성하기'; 
+      const data = getAllData().filter(d => d.studentNumber === studentNumber);
+      if (!data.length) {
+        el.innerHTML = '<p class="text-red-600 font-semibold">아직 기록이 없어 조언을 생성할 수 없습니다.</p>';
+        btn.disabled = false;
+        btn.textContent = '조언 생성하기';
         return;
       }
 
-      const recent5 = data.slice(-5).map(e=> `[${e.date} ${e.emotion}] ${e.reason}`).join('\n');
-      const total = data.reduce((acc,c)=> (acc[getEmotionType(c.emotion,c)]++, acc), {positive:0,negative:0,neutral:0});
-      
-      const prompt = `당신은 초등학교 선생님입니다. 다음 학생의 기록을 보고 따뜻한 격려를 3문장 이내로 해주세요.\n\n통계: 긍정 ${total.positive}, 부정 ${total.negative}\n기록:\n${recent5}`;
-      
-      const advice = await callGeminiAPI(prompt);
-      
-      if (advice) {
-        el.innerHTML = `<p class="whitespace-pre-wrap">${advice}</p>`;
-      } else {
-        el.innerHTML = '<p class="text-red-600 font-semibold">AI 조언 생성에 실패했습니다. API 키와 모델 설정을 확인해주세요.</p>';
-      }
-      
-      btn.disabled=false; 
-      btn.textContent='조언 다시 생성하기';
-    }
-    
+      const recent5 = data.slice(-5).map(e => `[${e.date} ${e.emotion}] ${e.reason}`).join('\n');
+      const total = data.reduce((acc, c) => {
+        const type = getEmotionType(c.emotion, c);
+        acc[type]++;
+        return acc;
+      }, { positive: 0, negative: 0, neutral: 0 });
+
+      // 프롬프트를 변수 안에 정확히 담았습니다.
+      const prompt = `당신은 초등학교 담임 선생님입니다. 아래 학생의 감정 통계와 최근 5일간의 기록을 바탕으로 학생에게 따뜻한 격려의 조언을 3문장 이내로 해주세요.
+
 <학생 감정 통계>
 - 전체 기록: ${data.length}건
 - 긍정: ${total.positive}회, 부정: ${total.negative}회, 중립: ${total.neutral}회
 
-<최근 5일간의 기록 (최신순)>
+<최근 5일간의 기록>
 ${recent5}
 
 선생님의 조언:`;
+
       const advice = await callGeminiAPI(prompt);
-      el.innerHTML = advice ? `<p class="whitespace-pre-wrap">${advice}</p>`
-                            : '<p class="text-red-600 font-semibold">AI 조언 생성에 실패했습니다. 다시 시도해 주세요.</p>';
-      btn.disabled=false; btn.textContent='조언 다시 생성하기';
+      el.innerHTML = advice ? `<p class="whitespace-pre-wrap">${advice}</p>` : '<p class="text-red-600 font-semibold">AI 조언 생성에 실패했습니다. 다시 시도해 주세요.</p>';
+      btn.disabled = false;
+      btn.textContent = '조언 다시 생성하기';
     }
 
     /* =========================
        학생 로그인
        ========================= */
-    function handleStudentLogin(e){
+    function handleStudentLogin(e) {
       e.preventDefault();
       const num = document.getElementById('studentLoginNumber').value;
-      const pw  = document.getElementById('studentLoginPassword').value;
+      const pw = document.getElementById('studentLoginPassword').value;
       const err = document.getElementById('studentLoginError');
-      if (!num || !pw){ err.textContent='번호와 비밀번호를 모두 입력해주세요.'; err.classList.remove('hidden'); return; }
+      if (!num || !pw) {
+        err.textContent = '번호와 비밀번호를 모두 입력해주세요.';
+        err.classList.remove('hidden');
+        return;
+      }
 
-      const SECRET=572, MULT=17;
-      const expected = ((Number(num)*MULT)+SECRET).toString().slice(-4).padStart(4,'0');
-      if (pw === expected){
+      const SECRET = 572, MULT = 17;
+      const expected = ((Number(num) * MULT) + SECRET).toString().slice(-4).padStart(4, '0');
+      if (pw === expected) {
         err.classList.add('hidden');
         document.getElementById('studentLoginForm').reset();
         renderStudentReport(num, false);
       } else {
-        err.textContent='번호 또는 비밀번호가 올바르지 않습니다.';
+        err.textContent = '번호 또는 비밀번호가 올바르지 않습니다.';
         err.classList.remove('hidden');
       }
     }
-
-    /* =========================
-       초기화
-       ========================= */
-    document.addEventListener('DOMContentLoaded', async ()=>{
-      document.getElementById('currentDate').textContent = getTodayDateString();
-      populateForms();
-      await syncDataFromGAS();
-      showPage('mainPage');
-
-      // 폼 리스너
-      const emotionForm = document.getElementById('emotionForm');
-      if (emotionForm) emotionForm.addEventListener('submit', onEmotionSubmit);
-
-      const noteForm = document.getElementById('noteForm');
-      if (noteForm) noteForm.addEventListener('submit', onSendNote);
-
-      const studentLoginForm = document.getElementById('studentLoginForm');
-      if (studentLoginForm) studentLoginForm.addEventListener('submit', handleStudentLogin);
-
-      // 대시보드 기본 날짜/월
-      const d = document.getElementById('dashboardDate'); if (d) d.value = getTodayDateString();
-      const m = document.getElementById('dashboardMonth');
-      if (m){ const t = new Date(); m.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}`; }
-    });
-
-    (() => {
-      const api = {
-        showPage,
-        switchDashboardTab,
-        refreshDashboardData,
-        clearLocalCache,
-        logoutTeacher,
-        handleTeacherLogin,
-        renderStudentReport,
-        fetchAIAdvice,
-        selectEmotion,
-        showCustomEmotionInput,
-        hideCustomEmotionInput,
-        handleCustomEmotion,
-        setCustomCategory,
-      };
-      Object.assign(window, api);
-    })();
   </script>
 
 </head>
