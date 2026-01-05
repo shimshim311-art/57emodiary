@@ -81,7 +81,7 @@
     const TEACHER_PASSWORD = 'teacher572';
 
     // (선택) Gemini API 사용 시 설정
-    const API_KEY = ""; // 필요 시 키 입력
+    const API_KEY = "AIzaSyDnAn0avxLdzICLBYitlpUMErEqB2jB97s"; // 필요 시 키 입력
 
     // 학생 번호 목록
     const STUDENT_NUMBERS = ["2","3","4","5","6","7","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","30"];
@@ -371,8 +371,7 @@
 
     async function callGeminiAPI(prompt){
       if (!API_KEY) return null;
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
-      try{
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
         let response; let delay = 1000;
         for (let i=0;i<5;i++){
           response = await fetch(url, {
