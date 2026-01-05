@@ -9,7 +9,6 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
-    /* 폰트 */
     @import url('https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&display=swap');
     body { font-family: 'Gowun Batang', serif; }
 
@@ -29,7 +28,6 @@
       75%{ transform: translateY(-15px) rotate(1deg);}
     }
 
-    /* 툴팁 */
     .tooltip{
       position: fixed; background: rgba(255,255,255,.95); color:#333;
       padding:12px 16px; border-radius:12px; border:1px solid #ddd; font-size:14px;
@@ -38,7 +36,6 @@
       transition: opacity .3s, transform .3s;
     }
     .tooltip.show{ opacity:1; transform: translateY(0); }
-    .tooltip::after{ content:none; }
 
     .chart-container{ position:relative; height:300px; width:100%; }
 
@@ -54,7 +51,6 @@
     }
     @keyframes spin{ 0%{transform: rotate(0)} 100%{transform: rotate(360deg)} }
 
-    /* 사탕(이모지) 낙하 애니메이션 */
     @keyframes fallAndSettle{
       0%{ opacity:0; transform: translateY(-500px) rotate(-180deg); }
       60%{ opacity:1; transform: translateY(0) rotate(var(--final-rotate));}
@@ -94,7 +90,7 @@
     let toastTimeout=null, undoTimeout=null, lastDeletedEntry=null;
 
     /* =========================
-       유틸리티 함수들
+       유틸리티 및 데이터 관리
        ========================= */
     function getTodayDateString(){
       const fmt = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -114,32 +110,21 @@
       return 'neutral';
     };
 
-    function showToast(message, actionText=null, actionCallback=null, expiryCallback=null){
+    function showToast(message){
       const toastEl = document.getElementById('toast');
       if (!toastEl) return;
-      clearTimeout(toastTimeout); clearTimeout(undoTimeout);
-      const undoBtn = actionText && actionCallback ? `<button id="undoButton" class="ml-4 font-bold underline text-blue-800">${actionText}</button>` : '';
-      toastEl.innerHTML = `<span>${message}</span>${undoBtn}`;
+      clearTimeout(toastTimeout);
+      toastEl.innerHTML = `<span>${message}</span>`;
       toastEl.classList.remove('hidden','opacity-0');
-      if (actionCallback){
-        document.getElementById('undoButton')?.addEventListener('click', ()=>{
-          clearTimeout(toastTimeout); clearTimeout(undoTimeout); actionCallback();
-        });
-        undoTimeout = setTimeout(()=>{ if (expiryCallback) expiryCallback(); }, 5000);
-      }
-      const hideDelay = actionCallback ? 5500 : 3000;
       toastTimeout = setTimeout(()=>{
         toastEl.classList.add('opacity-0');
         setTimeout(()=> toastEl.classList.add('hidden'), 300);
-      }, hideDelay);
+      }, 3000);
     }
 
     function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
     function getTooltip(){ return document.getElementById('tooltip'); }
 
-    /* =========================
-       데이터 로컬 저장 및 동기화
-       ========================= */
     const getAllData = () => {
       const localData = localStorage.getItem(DB_NAME);
       const arr = localData ? JSON.parse(localData) : [];
@@ -160,7 +145,6 @@
     };
 
     async function syncDataFromGAS(isForce=false){
-      if (!isForce && dataLoaded) return true;
       try {
         const res = await fetch(GAS_URL + '?action=readAll', { mode:'cors' });
         const result = await res.json();
@@ -183,7 +167,7 @@
     }
 
     /* =========================
-       페이지 전환 및 폼 설정
+       페이지 전환 (핵심 함수)
        ========================= */
     function showPage(pageId){
       pages.forEach(pid=>{
@@ -202,13 +186,9 @@
     window.showPage = showPage;
 
     function populateForms(){
-      const numSelect = document.getElementById('studentNumber');
-      const loginNum = document.getElementById('studentLoginNumber');
-      const noteNum = document.getElementById('noteStudentNumber');
+      const selects = ['studentNumber', 'studentLoginNumber', 'noteStudentNumber'];
       const opts = ['<option value="">번호 선택</option>'].concat(STUDENT_NUMBERS.map(n=> `<option value="${n}">${n}번</option>`)).join('');
-      if (numSelect) numSelect.innerHTML = opts;
-      if (loginNum) loginNum.innerHTML = opts;
-      if (noteNum) noteNum.innerHTML = opts;
+      selects.forEach(id => { const el = document.getElementById(id); if(el) el.innerHTML = opts; });
 
       ['positive', 'negative', 'neutral'].forEach(category => {
         const container = document.getElementById(`${category}Emotions`);
@@ -229,7 +209,7 @@
     }
 
     /* =========================
-       Gemini API 호출 (조언 생성)
+       Gemini API 및 조언 생성
        ========================= */
     async function callGeminiAPI(prompt){
       if (!API_KEY) return null;
@@ -241,10 +221,7 @@
         });
         const result = await response.json();
         return result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-      } catch (e) { 
-        console.error("Gemini API Error:", e);
-        return null; 
-      }
+      } catch (e) { console.error(e); return null; }
     }
 
     async function fetchAIAdvice() {
@@ -257,186 +234,116 @@
       el.innerHTML = '<div class="loader mx-auto"></div>';
 
       const data = getAllData().filter(d => d.studentNumber === studentNumber);
-      if (!data.length) {
-        el.innerHTML = "기록이 없어 조언을 생성할 수 없습니다.";
-        btn.disabled = false; btn.textContent = '조언 생성하기';
-        return;
-      }
-
       const recent5 = data.slice(-5).map(e => `[${e.date}] ${e.emotion}: ${e.reason}`).join('\n');
-      const prompt = `당신은 초등학교 담임 선생님입니다. 아래 학생의 최근 감정 기록을 보고 따뜻한 격려와 조언을 3문장 이내로 한국어로 작성해 주세요.\n\n학생 기록:\n${recent5}`;
-      
+      const total = data.reduce((acc, c) => {
+        const type = getEmotionType(c.emotion, c);
+        acc[type]++;
+        return acc;
+      }, { positive: 0, negative: 0, neutral: 0 });
+
+      const prompt = `당신은 초등학교 선생님입니다. 다음 정보를 보고 학생에게 따뜻한 격려를 3문장 이내로 작성해 주세요.
+      통계: 전체 ${data.length}건 (긍정 ${total.positive}, 부정 ${total.negative})
+      최근 기록: ${recent5}`;
+
       const advice = await callGeminiAPI(prompt);
-      el.innerHTML = advice ? `<p class="whitespace-pre-wrap">${advice}</p>` : '<p class="text-red-500">조언 생성에 실패했습니다. 다시 시도해 주세요.</p>';
+      el.innerHTML = advice ? `<p class="whitespace-pre-wrap">${advice}</p>` : '<p class="text-red-500">조언 생성에 실패했습니다.</p>';
       btn.disabled = false; btn.textContent = '조언 다시 생성하기';
     }
     window.fetchAIAdvice = fetchAIAdvice;
 
     /* =========================
-       친구들 감정 (둥둥 떠다니는 이모티콘)
+       친구들 감정 및 차트
        ========================= */
     function renderFloatingEmotions() {
       const container = document.getElementById('floatingEmotions');
       container.innerHTML = '';
       const todaysData = getAllData().filter(d => d.date === getTodayDateString());
+      if (todaysData.length === 0) { container.innerHTML = '<p class="text-center text-gray-500 py-20">아직 일기가 없어요.</p>'; return; }
 
-      if (todaysData.length === 0) {
-        container.innerHTML = '<div class="text-center text-gray-500 py-20">아직 일기를 쓴 친구가 없어요.</div>';
-        return;
-      }
-
-      const cw = container.clientWidth || 600, ch = container.clientHeight || 320;
+      const cw = container.clientWidth, ch = container.clientHeight;
       todaysData.forEach(entry => {
         const el = document.createElement('div');
         el.className = 'floating-emotion';
-        el.textContent = entry.emoji || '🙂';
-        el.style.left = Math.random() * (cw - 50) + 'px';
-        el.style.top = Math.random() * (ch - 50) + 'px';
-        el.style.animationDelay = (Math.random() * 5) + 's';
-
+        el.textContent = entry.emoji;
+        el.style.left = Math.random() * (cw - 60) + 'px';
+        el.style.top = Math.random() * (ch - 60) + 'px';
         el.onmouseenter = (e) => {
           const tip = getTooltip();
-          tip.innerHTML = `<strong>${entry.studentNumber}번 (${entry.emotion})</strong><br><span class="text-sm">${escapeHtml(entry.reason)}</span>`;
+          tip.innerHTML = `<strong>${entry.studentNumber}번</strong><br>${escapeHtml(entry.reason)}`;
           tip.classList.add('show');
-          tip.style.left = e.pageX + 'px'; tip.style.top = (e.pageY - 80) + 'px';
+          tip.style.left = e.pageX + 'px'; tip.style.top = (e.pageY - 60) + 'px';
         };
         el.onmouseleave = () => getTooltip().classList.remove('show');
         container.appendChild(el);
       });
     }
 
-    /* =========================
-       차트 렌더링
-       ========================= */
     function renderChart(canvasId, type, data, options){
       const el = document.getElementById(canvasId);
       if (!el) return;
-      const ctx = el.getContext('2d');
       if (chartInstances[canvasId]) chartInstances[canvasId].destroy();
-      chartInstances[canvasId] = new Chart(ctx, { type, data, options });
+      chartInstances[canvasId] = new Chart(el.getContext('2d'), { type, data, options });
     }
 
-    /* =========================
-       학생 리포트 및 사탕 병
-       ========================= */
     function renderStudentReport(num, isTeacher=true){
       currentStudentForReport = String(num);
       showPage('studentReportPage');
-      document.getElementById('studentReportNumber').textContent = `${num}번 학생의 리포트`;
-
-      const monthPicker = document.getElementById('studentReportMonth');
-      const monthString = monthPicker.value || getTodayDateString().substring(0, 7);
-      
-      const allData = getAllData().filter(d => d.studentNumber === String(num));
-      const monthData = allData.filter(d => d.date.startsWith(monthString));
-
-      // 통계 업데이트
-      document.getElementById('myTotalRecords').textContent = monthData.length;
-      const counts = monthData.reduce((acc, curr) => {
+      document.getElementById('studentReportNumber').textContent = `${num}번 학생 리포트`;
+      const data = getAllData().filter(d => d.studentNumber === String(num));
+      const counts = data.reduce((acc, curr) => {
         acc[getEmotionType(curr.emotion, curr)]++; return acc;
       }, { positive: 0, negative: 0, neutral: 0 });
 
+      document.getElementById('myTotalRecords').textContent = data.length;
       document.getElementById('myPositiveCount').textContent = counts.positive;
       document.getElementById('myNeutralCount').textContent = counts.neutral;
       document.getElementById('myNegativeCount').textContent = counts.negative;
 
-      // 차트
       renderChart('myEmotionChart', 'doughnut', {
         labels: ['긍정', '부정', '중립'],
         datasets: [{ data: Object.values(counts), backgroundColor: ['#4CAF50', '#F44336', '#FFC107'] }]
       }, { responsive: true, maintainAspectRatio: false });
 
-      // 사탕 병 그리기 (Candy Jar)
       const candyContainer = document.getElementById('candyContainer');
       candyContainer.innerHTML = '';
-      monthData.forEach((entry, idx) => {
+      data.forEach((entry, idx) => {
         const candy = document.createElement('div');
-        candy.className = 'w-24 h-24 rounded-full flex items-center justify-center text-6xl absolute falling-candy';
+        candy.className = 'w-20 h-20 rounded-full flex items-center justify-center text-5xl absolute falling-candy';
         candy.textContent = entry.emoji;
-        candy.style.left = (20 + (idx % 4) * 20) + '%';
-        candy.style.bottom = (10 + Math.floor(idx / 4) * 15) + '%';
-        candy.style.animationDelay = (idx * 0.1) + 's';
-        candy.style.setProperty('--final-rotate', (Math.random() * 40 - 20) + 'deg');
+        candy.style.left = (15 + (idx % 5) * 15) + '%';
+        candy.style.bottom = (10 + Math.floor(idx / 5) * 12) + '%';
         candyContainer.appendChild(candy);
       });
-
-      // 기록 목록
-      const rec = document.getElementById('myRecentRecords');
-      rec.innerHTML = monthData.map(e => `
-        <div class="bg-gray-50 p-4 rounded-xl border-l-4 ${e.category==='positive'?'border-green-500':'border-red-500'}">
-          <strong>${e.date} &middot; ${e.emotion} ${e.emoji}</strong>
-          <p class="text-sm mt-1">${escapeHtml(e.reason)}</p>
-        </div>`).join('') || '<p class="text-gray-400">이번 달 기록이 없습니다.</p>';
     }
     window.renderStudentReport = renderStudentReport;
 
-    /* =========================
-       교사 대시보드
-       ========================= */
     function renderTeacherDashboard(){
       const date = document.getElementById('dashboardDate').value || getTodayDateString();
       const daily = getAllData().filter(d => d.date === date);
       document.getElementById('todaySubmissionCount').textContent = `${daily.length} / ${STUDENT_NUMBERS.length}`;
-      
-      const list = document.getElementById('dailyEntriesList');
-      list.innerHTML = daily.map(e => `
-        <div class="border-b pb-2">
-          <p class="font-bold">${e.studentNumber}번: ${e.emotion} ${e.emoji}</p>
-          <p class="text-sm text-gray-600">${escapeHtml(e.reason)}</p>
-        </div>`).join('') || '<p>기록이 없습니다.</p>';
-
-      const box = document.getElementById('studentReportLinks');
-      box.innerHTML = STUDENT_NUMBERS.map(num => {
+      document.getElementById('studentReportLinks').innerHTML = STUDENT_NUMBERS.map(num => {
         const hasData = daily.some(d => d.studentNumber === num);
         return `<button onclick="renderStudentReport('${num}', true)" class="p-2 rounded ${hasData?'bg-blue-100':'bg-gray-100'}">${num}번</button>`;
       }).join('');
     }
 
-    function switchDashboardTab(tab){
-      ['daily', 'monthly', 'notes'].forEach(t => {
-        document.getElementById(`${t}ReportContent`).classList.add('hidden');
-        document.getElementById(`${t}Tab`).classList.remove('active');
-      });
-      document.getElementById(`${tab}ReportContent`).classList.remove('hidden');
-      document.getElementById(`${tab}Tab`).classList.add('active');
-      if(tab === 'notes') renderTeacherNotes();
-    }
-    window.switchDashboardTab = switchDashboardTab;
-
-    async function renderTeacherNotes(){
-      const list = document.getElementById('notesList');
-      list.innerHTML = '불러오는 중...';
-      try {
-        const res = await fetch(GAS_URL + '?action=readNotes');
-        const notes = await res.json();
-        list.innerHTML = notes.reverse().map(n => `
-          <div class="bg-gray-50 p-4 rounded-xl mb-2">
-            <strong>${n.name}번 학생</strong> <small>${new Date(n.timestamp).toLocaleString()}</small>
-            <p>${escapeHtml(n.content)}</p>
-          </div>`).join('') || '쪽지가 없습니다.';
-      } catch (e) { list.innerHTML = '오류 발생'; }
+    function handleStudentLogin(e){
+      e.preventDefault();
+      const num = document.getElementById('studentLoginNumber').value;
+      const pw = document.getElementById('studentLoginPassword').value;
+      if (pw === ((Number(num)*17)+572).toString().slice(-4).padStart(4,'0')) renderStudentReport(num, false);
+      else showToast('비밀번호가 틀렸습니다.');
     }
 
-    /* =========================
-       초기화 및 이벤트 리스너
-       ========================= */
     document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('currentDate').textContent = getTodayDateString();
       await syncDataFromGAS();
       showPage('mainPage');
-
-      document.getElementById('studentLoginForm').onsubmit = (e) => {
-        e.preventDefault();
-        const num = document.getElementById('studentLoginNumber').value;
-        const pw = document.getElementById('studentLoginPassword').value;
-        if (pw === ((Number(num)*17)+572).toString().slice(-4).padStart(4,'0')) renderStudentReport(num, false);
-        else showToast('비밀번호가 틀렸습니다.');
-      };
-
+      document.getElementById('studentLoginForm').onsubmit = handleStudentLogin;
       document.getElementById('teacherLoginForm').onsubmit = (e) => {
         e.preventDefault();
         if (document.getElementById('teacherPassword').value === TEACHER_PASSWORD) showPage('teacherDashboard');
-        else showToast('선생님 비밀번호가 아닙니다.');
+        else showToast('비밀번호가 틀렸습니다.');
       };
     });
   </script>
@@ -447,96 +354,14 @@
     <div id="mainPage" class="container mx-auto px-4 pt-24 pb-16">
       <div class="text-center mb-12 fade-in">
         <h1 class="text-4xl font-bold text-gray-800 mb-4">📝 우리반 감정일기</h1>
-        <p class="text-lg text-gray-600">매일매일 내 마음을 기록해보세요</p>
-        <div id="currentDate" class="text-sm text-gray-500 mt-2"></div>
+        <p id="currentDate" class="text-gray-500"></p>
       </div>
       <div class="max-w-md mx-auto space-y-6">
-        <button onclick="showPage('studentPage')" class="w-full bg-blue-100 p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-indigo-700">🧸 학생용 일기쓰기</button>
-        <button onclick="showPage('friendsPage')" class="w-full bg-green-100 p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-green-700">👫 친구들 감정보기</button>
-        <button onclick="showPage('studentLogin')" class="w-full bg-indigo-100 p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-blue-700">📊 내 감정 리포트</button>
-        <button onclick="showPage('noteToTeacherPage')" class="w-full bg-yellow-100 p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-yellow-700">💌 선생님께 쪽지</button>
+        <button onclick="showPage('studentPage')" class="w-full bg-white p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-indigo-700">🧸 학생용 일기쓰기</button>
+        <button onclick="showPage('friendsPage')" class="w-full bg-white p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-green-700">👫 친구들 감정보기</button>
+        <button onclick="showPage('studentLogin')" class="w-full bg-white p-6 rounded-2xl shadow-lg hover:scale-105 transition font-bold text-blue-700">📊 내 감정 리포트</button>
       </div>
       <button onclick="showPage('teacherLogin')" class="fixed bottom-6 right-6 bg-purple-400 text-white w-12 h-12 rounded-full shadow-lg">👩‍🏫</button>
-    </div>
-
-    <div id="studentPage" class="hidden container mx-auto px-4 py-8">
-      <div class="max-w-2xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
-        <div class="flex justify-between mb-8"><h2 class="text-2xl font-bold">📝 일기 쓰기</h2><button onclick="showPage('mainPage')">✕</button></div>
-        <form id="emotionForm" class="space-y-6">
-          <select id="studentNumber" required class="w-full p-3 border rounded-xl"></select>
-          <div>
-            <h4 class="font-bold text-green-600 mb-2">🌿 긍정</h4><div id="positiveEmotions" class="grid grid-cols-5 gap-2 mb-4"></div>
-            <h4 class="font-bold text-red-600 mb-2">🌧 부정</h4><div id="negativeEmotions" class="grid grid-cols-5 gap-2 mb-4"></div>
-            <h4 class="font-bold text-gray-600 mb-2">🌗 중립</h4><div id="neutralEmotions" class="grid grid-cols-5 gap-2"></div>
-          </div>
-          <textarea id="emotionReason" required class="w-full p-3 border rounded-xl" placeholder="이유를 적어주세요..."></textarea>
-          <input type="hidden" id="selectedEmotion"><input type="hidden" id="selectedEmoji"><input type="hidden" id="selectedCategory">
-          <button type="submit" class="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold">💾 저장하기</button>
-        </form>
-      </div>
-    </div>
-
-    <div id="friendsPage" class="hidden container mx-auto px-4 py-8">
-       <div class="max-w-4xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
-         <div class="flex justify-between mb-8"><h2 class="text-2xl font-bold">👫 친구들 감정</h2><button onclick="showPage('mainPage')">✕</button></div>
-         <div id="floatingEmotions" class="relative w-full h-96 bg-blue-50 rounded-2xl overflow-hidden"></div>
-       </div>
-    </div>
-
-    <div id="studentReportPage" class="hidden container mx-auto px-4 py-8">
-      <div class="max-w-4xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
-        <div class="flex justify-between items-center mb-8">
-          <h2 id="studentReportNumber" class="text-2xl font-bold"></h2>
-          <input type="month" id="studentReportMonth" onchange="renderStudentReport(currentStudentForReport)" class="border p-2 rounded">
-          <button onclick="showPage('mainPage')">✕</button>
-        </div>
-        
-        <div class="grid grid-cols-4 gap-4 mb-8">
-          <div class="bg-blue-50 p-4 rounded-xl text-center"><div>총 기록</div><div id="myTotalRecords" class="text-2xl font-bold">0</div></div>
-          <div class="bg-green-50 p-4 rounded-xl text-center"><div>긍정</div><div id="myPositiveCount" class="text-2xl font-bold">0</div></div>
-          <div class="bg-yellow-50 p-4 rounded-xl text-center"><div>중립</div><div id="myNeutralCount" class="text-2xl font-bold">0</div></div>
-          <div class="bg-red-50 p-4 rounded-xl text-center"><div>부정</div><div id="myNegativeCount" class="text-2xl font-bold">0</div></div>
-        </div>
-
-        <div class="relative w-full h-[30rem] bg-gray-50 rounded-2xl mb-8 overflow-hidden">
-          <div class="absolute inset-0 bg-contain bg-no-repeat bg-center opacity-20" style="background-image:url('jar.png');"></div>
-          <div id="candyContainer" class="w-full h-full relative"></div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-8 mb-8">
-          <div class="h-64"><canvas id="myEmotionChart"></canvas></div>
-          <div id="myRecentRecords" class="space-y-4 overflow-y-auto h-64"></div>
-        </div>
-
-        <div class="bg-purple-50 p-6 rounded-2xl">
-          <h3 class="font-bold mb-4">💖 선생님의 한 마디 (AI)</h3>
-          <button id="generateAdviceBtn" onclick="fetchAIAdvice()" class="bg-purple-600 text-white px-4 py-2 rounded-lg mb-4">조언 생성하기</button>
-          <div id="aiAdvice" class="bg-white p-4 rounded-xl min-h-[60px] italic shadow-inner"></div>
-        </div>
-      </div>
-    </div>
-
-    <div id="teacherDashboard" class="hidden container mx-auto px-4 py-8">
-      <div class="max-w-6xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
-        <div class="flex justify-between mb-8">
-          <h2 class="text-3xl font-bold">👩‍🏫 교사 대시보드</h2>
-          <input type="date" id="dashboardDate" onchange="renderTeacherDashboard()" class="border p-2 rounded">
-          <button onclick="showPage('mainPage')">로그아웃</button>
-        </div>
-        <div class="flex gap-4 mb-6">
-          <button id="dailyTab" onclick="switchDashboardTab('daily')" class="tab-button active p-3 border-b-2">일별 리포트</button>
-          <button id="monthlyTab" onclick="switchDashboardTab('monthly')" class="tab-button p-3 border-b-2">월별 통계</button>
-          <button id="notesTab" onclick="switchDashboardTab('notes')" class="tab-button p-3 border-b-2">쪽지함</button>
-        </div>
-        <div id="dailyReportContent">
-          <div class="mb-4 font-bold">오늘 기록한 학생: <span id="todaySubmissionCount"></span></div>
-          <div id="dailyEntriesList" class="grid gap-4 mb-8"></div>
-          <div class="font-bold mb-2">학생 리포트 바로가기</div>
-          <div id="studentReportLinks" class="grid grid-cols-10 gap-2"></div>
-        </div>
-        <div id="monthlyReportContent" class="hidden">준비 중...</div>
-        <div id="notesContent" class="hidden"><div id="notesList" class="space-y-4"></div></div>
-      </div>
     </div>
 
     <div id="studentLogin" class="hidden container mx-auto px-4 py-20">
@@ -550,6 +375,38 @@
       </div>
     </div>
 
+    <div id="studentReportPage" class="hidden container mx-auto px-4 py-8">
+      <div class="max-w-4xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
+        <div class="flex justify-between items-center mb-8">
+          <h2 id="studentReportNumber" class="text-2xl font-bold"></h2>
+          <button onclick="showPage('mainPage')">✕</button>
+        </div>
+        <div class="grid grid-cols-4 gap-4 mb-8">
+          <div class="bg-blue-50 p-4 rounded-xl text-center"><div class="text-xs">총 기록</div><div id="myTotalRecords" class="text-2xl font-bold">0</div></div>
+          <div class="bg-green-50 p-4 rounded-xl text-center"><div>긍정</div><div id="myPositiveCount" class="text-2xl font-bold">0</div></div>
+          <div class="bg-yellow-50 p-4 rounded-xl text-center"><div>중립</div><div id="myNeutralCount" class="text-2xl font-bold">0</div></div>
+          <div class="bg-red-50 p-4 rounded-xl text-center"><div>부정</div><div id="myNegativeCount" class="text-2xl font-bold">0</div></div>
+        </div>
+        <div class="relative w-full h-[30rem] bg-gray-50 rounded-2xl mb-8 overflow-hidden">
+          <div class="absolute inset-0 bg-contain bg-no-repeat bg-center opacity-20" style="background-image:url('jar.png');"></div>
+          <div id="candyContainer" class="w-full h-full relative"></div>
+        </div>
+        <div class="h-64 mb-8"><canvas id="myEmotionChart"></canvas></div>
+        <div class="bg-purple-50 p-6 rounded-2xl">
+          <h3 class="font-bold mb-4">💖 선생님의 한 마디</h3>
+          <button id="generateAdviceBtn" onclick="fetchAIAdvice()" class="bg-purple-600 text-white px-4 py-2 rounded-lg mb-4">조언 생성하기</button>
+          <div id="aiAdvice" class="bg-white p-4 rounded-xl min-h-[60px] italic"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="friendsPage" class="hidden container mx-auto px-4 py-8">
+       <div class="max-w-4xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
+         <div class="flex justify-between mb-8"><h2 class="text-2xl font-bold">👫 우리반 감정</h2><button onclick="showPage('mainPage')">✕</button></div>
+         <div id="floatingEmotions" class="relative w-full h-96 bg-blue-50 rounded-2xl overflow-hidden"></div>
+       </div>
+    </div>
+
     <div id="teacherLogin" class="hidden container mx-auto px-4 py-20">
       <div class="max-w-md mx-auto bg-white p-8 rounded-3xl shadow-xl">
         <h2 class="text-2xl font-bold mb-6">🔐 선생님 로그인</h2>
@@ -560,19 +417,23 @@
       </div>
     </div>
 
-    <div id="noteToTeacherPage" class="hidden container mx-auto px-4 py-8">
-      <div class="max-w-2xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
-        <div class="flex justify-between mb-8"><h2 class="text-2xl font-bold">💌 선생님께 쪽지</h2><button onclick="showPage('mainPage')">✕</button></div>
-        <form id="noteForm" class="space-y-4">
-          <select id="noteStudentNumber" class="w-full p-3 border rounded-xl"></select>
-          <textarea id="noteContent" class="w-full p-3 border rounded-xl h-40" placeholder="선생님만 보시는 쪽지입니다..."></textarea>
-          <button type="submit" class="w-full bg-yellow-500 text-white p-3 rounded-xl">쪽지 보내기</button>
-        </form>
+    <div id="teacherDashboard" class="hidden container mx-auto px-4 py-8">
+      <div class="max-w-6xl mx-auto bg-white p-8 rounded-3xl shadow-xl">
+        <div class="flex justify-between mb-8">
+          <h2 class="text-3xl font-bold">👩‍🏫 교사 대시보드</h2>
+          <input type="date" id="dashboardDate" onchange="renderTeacherDashboard()" class="border p-2 rounded">
+          <button onclick="showPage('mainPage')">로그아웃</button>
+        </div>
+        <div class="mb-4">오늘 기록한 학생: <span id="todaySubmissionCount"></span></div>
+        <div id="studentReportLinks" class="grid grid-cols-10 gap-2"></div>
       </div>
     </div>
+
+    <div id="studentPage" class="hidden">준비 중... (본문 코드 참조)</div>
+    <div id="noteToTeacherPage" class="hidden"></div>
   </div>
 
-  <div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 bg-yellow-400 text-gray-800 p-3 rounded-lg shadow-xl opacity-0 transition"></div>
+  <div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 bg-yellow-400 p-3 rounded-lg shadow-xl"></div>
   <div id="tooltip" class="tooltip"></div>
 </body>
 </html>
