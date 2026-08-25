@@ -1174,8 +1174,7 @@ ${recent5}
       if (!num || !pw){ err.textContent='번호와 비밀번호를 모두 입력해주세요.'; err.classList.remove('hidden'); return; }
 
       const SECRET=572, MULT=17;
-      const expected = ((Number(num)*MULT)+SECRET).toString().slice(-4).padStart(4,'0');
-      if (pw === expected){
+      if (pw === '0301'){
         err.classList.add('hidden');
         document.getElementById('studentLoginForm').reset();
         renderStudentReport(num, false);
